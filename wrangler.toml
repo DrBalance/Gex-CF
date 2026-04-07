@@ -1,0 +1,7 @@
+name = "gex-cf"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "59baf409d2d64e4cb9f0a6a2d50cd8a2"
