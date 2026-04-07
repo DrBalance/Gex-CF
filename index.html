@@ -178,6 +178,24 @@ tr.flip td{background:rgba(240,136,62,.06)}.tr.flip td:first-child{color:var(--o
 .tag-cur{background:rgba(88,166,255,.2);color:var(--blue)}.tag-flip{background:rgba(240,136,62,.2);color:var(--orange)}
 .tag-pw{background:rgba(248,81,73,.2);color:var(--red)}.tag-cw{background:rgba(63,185,80,.2);color:var(--green)}
 
+/* ── VannaCharm 실시간 차트 패널 ── */
+.vc-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:22px 28px;margin-bottom:0}
+.vc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
+.vc-title{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.09em}
+.vc-session{font-size:12px;font-weight:700;padding:3px 10px;border-radius:4px;font-family:var(--mono)}
+.vc-session.PRE{background:rgba(188,140,255,.15);color:var(--purple)}
+.vc-session.REGULAR{background:rgba(63,185,80,.15);color:var(--green)}
+.vc-session.POST{background:rgba(240,136,62,.15);color:var(--orange)}
+.vc-session.CLOSED{background:var(--bg3);color:var(--text3)}
+.vc-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.vc-tab{font-size:12px;padding:5px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font)}
+.vc-tab.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
+.vc-chart-wrap{position:relative;height:220px}
+.vc-advice{margin-top:12px;padding:10px 14px;border-radius:7px;font-size:13px;line-height:1.7;color:var(--text2);background:var(--bg3);border-left:3px solid var(--border)}
+.vc-advice.bull{border-left-color:var(--green)}.vc-advice.bear{border-left-color:var(--red)}.vc-advice.warn{border-left-color:var(--yellow)}
+.vc-advice b{color:var(--text)}
+.vc-loading{text-align:center;padding:60px 0;color:var(--text3);font-size:13px}
+
 /* ── 빈/로딩 ── */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:90px 24px;gap:16px;color:var(--text3)}
 .empty-icon{font-size:44px;opacity:.35}.empty-title{font-size:17px;font-weight:500;color:var(--text2)}
@@ -231,11 +249,17 @@ let chartInst = null;
 let allOptions = [], spotPrice = 0, vixVal = null, vvixVal = null;
 let currentStrikes = [], currentD = null;
 let autoInterval = null;
-let liveEvents = [];   // 실시간 이벤트 로그
-let priceHistory = []; // {time, price, vix} 히스토리 for 언와인드 감지
+let liveEvents = [];
+let priceHistory = [];
 let prevSpot = null;
 let zoomLevel = 1;
-let activeTooltipIdx = null; // 차트 hover 인덱스
+let activeTooltipIdx = null;
+
+// VannaCharm 관련
+let vcData = [];          // 분단위 VannaCharm 데이터 누적
+let vcChartInst = null;   // VannaCharm 차트 인스턴스
+let vcActiveTab = 'vanna'; // 현재 활성 탭
+let vcInterval = null;    // VannaCharm 자동갱신 인터벌
 
 window.addEventListener('DOMContentLoaded', () => { loadExpirations(); loadVIX(); });
 document.getElementById('sym-select').addEventListener('change', () => { allOptions=[]; loadExpirations(); });
@@ -262,6 +286,186 @@ function updateVIXMetrics() {
     vvm.querySelector('.val').textContent = vvixVal.toFixed(2);
     vvm.className = 'metric' + (vvixVal>130?' danger':vvixVal>110?' warn':'');
   }
+}
+
+// ── VannaCharm 데이터 로드 ──
+async function loadVannaCharm() {
+  const sym = document.getElementById('sym-select').value.replace('_','');
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  try {
+    const res = await fetch(`${PROXY}/api/vannacharm?symbol=${sym}&date=${today}`);
+    const json = await res.json();
+    if (!json.data || !json.data.length) return null;
+
+    // 새 데이터만 추가 (중복 제거)
+    const existing = new Set(vcData.map(d => d.session_minute));
+    let added = 0;
+    for (const row of json.data) {
+      if (!existing.has(row.session_minute)) {
+        vcData.push(row);
+        added++;
+      }
+    }
+    vcData.sort((a,b) => a.session_minute - b.session_minute);
+
+    return json._meta;
+  } catch(e) { console.error('VannaCharm load error:', e); return null; }
+}
+
+// ── VannaCharm 조언 생성 ──
+function buildVCAdvice(data, tab) {
+  if (!data.length) return { cls:'', text:'데이터 없음' };
+  const last = data[data.length - 1];
+  const surf = last.surfaces_jsonb;
+
+  // ATM 기준 (중간 인덱스)
+  const mid = Math.floor(surf[tab].length / 2);
+  const atm = surf[tab][mid] || 0;
+  const prev = data.length > 5 ? data[data.length-6].surfaces_jsonb[tab][mid] || 0 : atm;
+  const delta = atm - prev;
+
+  if (tab === 'vanna') {
+    if (atm > 0 && delta > 0) return { cls:'bear', text: `<b>Vanna 양수 상승 중</b> — IV 하락 시 딜러 매수 헷지. 단기 지지 가능하나 과도 상승 후 반전 주의.` };
+    if (atm > 0 && delta < 0) return { cls:'warn', text: `<b>Vanna 양수 감소 중</b> — 딜러 헷지 되감기 시작. 상승 모멘텀 약화.` };
+    if (atm < 0 && delta < 0) return { cls:'bull', text: `<b>Vanna 음수 확대</b> — IV 하락 시 딜러 매도 헷지. 하락 압력 증가.` };
+    if (atm < 0 && delta > 0) return { cls:'warn', text: `<b>Vanna 음수 완화</b> — 하락 압력 줄어드는 중. 반등 가능성 탐색.` };
+  }
+  if (tab === 'charm') {
+    if (atm < 0) return { cls:'bull', text: `<b>Charm 음수</b> — 시간 경과에 따라 딜러 매수 방향. 장 후반 상승 드리프트 가능.` };
+    if (atm > 0) return { cls:'bear', text: `<b>Charm 양수</b> — 시간 경과에 따라 딜러 매도 방향. 장 후반 하락 드리프트 가능.` };
+  }
+  if (tab === 'gamma') {
+    if (atm > 0) return { cls:'', text: `<b>Gamma 양수 (Positive GEX)</b> — 딜러가 변동성 억제. 현재가 피닝 가능성.` };
+    if (atm < 0) return { cls:'bear', text: `<b>Gamma 음수 (Negative GEX)</b> — 딜러가 추세 증폭. 방향성 강화.` };
+  }
+  if (tab === 'iv') {
+    return { cls:'', text: `<b>ATM IV ${(atm*100).toFixed(1)}%</b> — ${delta > 0 ? 'IV 상승 중 (변동성 확대)' : 'IV 하락 중 (변동성 수축, Vanna/Charm 언와인드 주목)'}` };
+  }
+  return { cls:'', text:'분석 중...' };
+}
+
+// ── VannaCharm 차트 렌더 ──
+function renderVCChart(tab) {
+  vcActiveTab = tab;
+  const canvas = document.getElementById('vc-chart');
+  if (!canvas || !vcData.length) return;
+
+  // 탭 버튼 활성화
+  document.querySelectorAll('.vc-tab').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.getElementById(`vc-tab-${tab}`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  // 데이터 추출 — ATM 기준 중간 스트라이크
+  const labels = vcData.map(d => {
+    const h = Math.floor(d.session_minute / 60) + 9;
+    const m = String(d.session_minute % 60).padStart(2,'0');
+    return `${h}:${m}`;
+  });
+
+  const surf = tab === 'vix'
+    ? vcData.map(d => d.vix)
+    : vcData.map(d => {
+        const arr = d.surfaces_jsonb?.[tab];
+        if (!arr || !arr.length) return null;
+        return arr[Math.floor(arr.length / 2)];
+      });
+
+  const color = { vanna:'#bc8cff', charm:'#f0883e', gamma:'#3fb950', iv:'#58a6ff', vix:'#f85149' };
+
+  if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
+
+  vcChartInst = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: tab.toUpperCase(),
+        data: surf,
+        borderColor: color[tab] || '#58a6ff',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        spanGaps: true,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+          titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#6e7681', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: 'rgba(48,54,61,.5)' } },
+        y: { ticks: { color: '#6e7681', font: { size: 10 } }, grid: { color: 'rgba(48,54,61,.5)' } },
+      }
+    }
+  });
+
+  // 조언 업데이트
+  const advice = buildVCAdvice(vcData, tab === 'vix' ? 'vanna' : tab);
+  const advEl = document.getElementById('vc-advice');
+  if (advEl) { advEl.className = `vc-advice ${advice.cls}`; advEl.innerHTML = advice.text; }
+}
+
+// ── VannaCharm 패널 초기화 ──
+async function initVCPanel() {
+  const panel = document.getElementById('vc-panel');
+  if (!panel) return;
+
+  panel.innerHTML = `<div class="vc-loading">⏳ VannaCharm 데이터 로드 중...</div>`;
+
+  vcData = [];
+  const meta = await loadVannaCharm();
+
+  if (!meta || !vcData.length) {
+    const session = meta?._meta?.marketSession || '';
+    panel.innerHTML = `
+      <div class="vc-header">
+        <div class="vc-title">◈ VannaCharm 실시간 흐름</div>
+        <div class="vc-session ${session}">${{PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[session]||'대기'}</div>
+      </div>
+      <div class="vc-loading" style="color:var(--text3)">장중 데이터가 없습니다. 정규장(9:30 AM ET) 시작 후 자동으로 업데이트됩니다.</div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="vc-header">
+      <div class="vc-title">◈ VannaCharm 실시간 흐름</div>
+      <div class="vc-session ${meta.marketSession}" id="vc-session">${{PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[meta.marketSession]||''}</div>
+    </div>
+    <div class="vc-tabs">
+      <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')">Vanna</button>
+      <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')">Charm</button>
+      <button class="vc-tab" id="vc-tab-gamma" onclick="renderVCChart('gamma')">Gamma</button>
+      <button class="vc-tab" id="vc-tab-iv" onclick="renderVCChart('iv')">IV</button>
+      <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')">VIX</button>
+    </div>
+    <div class="vc-chart-wrap"><canvas id="vc-chart"></canvas></div>
+    <div class="vc-advice" id="vc-advice"></div>`;
+
+  renderVCChart('vanna');
+
+  // 3분마다 자동갱신
+  if (vcInterval) clearInterval(vcInterval);
+  vcInterval = setInterval(async () => {
+    await loadVannaCharm();
+    renderVCChart(vcActiveTab);
+    const sesEl = document.getElementById('vc-session');
+    if (sesEl) {
+      const now = new Date();
+      const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+      const h = est.getHours() + est.getMinutes()/60;
+      const s = h>=9.5&&h<16?'REGULAR':h>=4&&h<9.5?'PRE':h>=16&&h<20?'POST':'CLOSED';
+      sesEl.className = `vc-session ${s}`;
+      sesEl.textContent = {PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[s];
+    }
+  }, 180000);
 }
 
 // ── 자동갱신 토글 ──
@@ -610,6 +814,7 @@ async function loadData() {
     const d={strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes,hedgeTargets};
     currentD=d;
     render(d);
+    initVCPanel();
     setStatus('live');
   } catch(e){
     console.error(e); setStatus('error');
@@ -877,6 +1082,10 @@ function render(d){
       <div class="unwind-title">⚡ 딜러 언와인드 감지</div>
       <div class="unwind-status" id="unwind-content"></div>
     </div>
+  </div>
+
+  <div class="card vc-panel" id="vc-panel">
+    <div class="vc-loading">⏳ VannaCharm 데이터 로드 중...</div>
   </div>
 
   <div class="card">
