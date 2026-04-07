@@ -544,27 +544,50 @@ function toggleAuto() {
   }
 }
 
-// ── 자동갱신: 현재가 + VIX만 (체인 재로드 없음 → ~1.5KB/요청) ──
+// ── 자동갱신: 현재가 + VIX (정규장 중에는 VannaCharm에서 추출) ──
 async function autoRefresh() {
   if (!currentD) return;
   try {
     setStatus('updating');
     const sym = document.getElementById('sym-select').value.replace('_','');
-    const [priceJson, vixJson] = await Promise.all([
-      fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
-      fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
-    ]);
 
-    // 프리마켓 / 정규장 / 애프터마켓 자동 감지
-    const newSpot       = priceJson.price;           // 현재 활성 가격
-    const marketState   = priceJson.marketState;     // "PRE" | "REGULAR" | "POST" | "CLOSED"
-    const priceLabel    = priceJson.priceLabel;      // "preMarket" | "regular" | "postMarket"
-    const regularPrice  = priceJson.regularPrice;    // 정규장 종가
-    const prevClose     = priceJson.prevClose;       // 전일 종가
-    const preMarketPct  = priceJson.preMarketChangePercent; // 프리마켓 등락률
+    // 현재 EST 시간으로 장 상태 판단
+    const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const estH = estNow.getHours() + estNow.getMinutes() / 60;
+    const isRegular = estH >= 9.5 && estH < 16;
 
-    vixVal  = vixJson.VIX?.price;
-    vvixVal = vixJson.VVIX?.price;
+    let newSpot, marketState, priceLabel, prevClose, preMarketPct;
+
+    if (isRegular && vcData.length) {
+      // 정규장 + VannaCharm 데이터 있으면 → VannaCharm에서 spot/vix 추출
+      const last = vcData[vcData.length - 1];
+      newSpot     = last.spot;
+      vixVal      = last.vix;
+      marketState = 'REGULAR';
+      priceLabel  = 'regular';
+      prevClose   = currentD.spotPrice; // CBOE 로드 시 종가 기준
+      preMarketPct = null;
+
+      // VVIX는 별도 조회 (VannaCharm에 없음)
+      fetch(`${PROXY}/api/vix?symbols=VVIX`).then(r=>r.json()).then(j=>{
+        vvixVal = j.VVIX?.price;
+        updateVIXMetrics();
+      }).catch(()=>{});
+
+    } else {
+      // 프리마켓/애프터 → 기존 방식 (Yahoo Finance)
+      const [priceJson, vixJson] = await Promise.all([
+        fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
+        fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
+      ]);
+      newSpot      = priceJson.price;
+      marketState  = priceJson.marketState;
+      priceLabel   = priceJson.priceLabel;
+      prevClose    = priceJson.prevClose;
+      preMarketPct = priceJson.preMarketChangePercent;
+      vixVal       = vixJson.VIX?.price;
+      vvixVal      = vixJson.VVIX?.price;
+    }
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -801,10 +824,17 @@ async function loadExpirations() {
     const json = await r.json();
     spotPrice = json.data.current_price;
     allOptions = json.data.options;
+
+    // 오늘 날짜 EST 기준
+    const todayEST = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+
     const exps = [...new Set(allOptions.map(o=>{
       const m=o.option.trim().match(/(\d{6})[CP]/); if(!m) return null;
       return `20${m[1].slice(0,2)}-${m[1].slice(2,4)}-${m[1].slice(4,6)}`;
-    }).filter(Boolean))].sort();
+    }).filter(Boolean))]
+      .filter(e => e >= todayEST) // 오늘 포함 미래 만기일만
+      .sort();
+
     const sel = document.getElementById('exp-select');
     sel.innerHTML = exps.map((e,i)=>`<option value="${e}"${i===0?' selected':''}>${i===0?e+' (0DTE)':e}</option>`).join('');
     document.getElementById('data-time').textContent = `로드: ${json.timestamp}`;
