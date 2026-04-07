@@ -400,7 +400,21 @@ function buildVCAdvice(data, tab) {
     opinion += ` <span style="color:var(--green)">Gamma 양수 — 피닝 구조 유지 중.</span>`;
   }
 
-  const fullText = `${tabText}${opinion ? `<br><br>${opinion}` : ''}`;
+  // ── Charm/Vanna 비율 판정 배지 ──
+  let dominanceBadge = '';
+  if (absCharm === 0 && absVanna === 0) {
+    dominanceBadge = '';
+  } else if (absCharm / Math.max(absVanna, 0.0001) >= 10) {
+    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(240,136,62,.2);color:var(--orange);margin-bottom:8px">⏱ Charm 지배 (${ratio}×) — 시간이 IV보다 강함</span><br>`;
+  } else if (absCharm / Math.max(absVanna, 0.0001) >= 3) {
+    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(210,153,34,.2);color:var(--yellow);margin-bottom:8px">⚡ Charm 우세 (${ratio}×) — 오후 드리프트 신뢰도 높음</span><br>`;
+  } else if (absVanna / Math.max(absCharm, 0.0001) >= 3) {
+    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(188,140,255,.2);color:var(--purple);margin-bottom:8px">◈ Vanna 우세 (${ratio}×) — IV 변화가 방향 결정</span><br>`;
+  } else {
+    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:var(--bg3);color:var(--text3);margin-bottom:8px">→ Charm/Vanna 혼전 (${ratio}×) — 방향 불확실</span><br>`;
+  }
+
+  const fullText = `${dominanceBadge}${tabText}${opinion ? `<br><br>${opinion}` : ''}`;
   return { cls, text: fullText };
 }
 
@@ -905,6 +919,13 @@ async function loadData() {
     currentD=d;
     render(d);
     initVCPanel();
+    // 데이터 로드 완료 후 자동갱신 자동 시작
+    if (!autoInterval) {
+      document.getElementById('auto-btn').className = 'auto-btn on';
+      document.getElementById('auto-label').textContent = '자동갱신 ON';
+      autoRefresh();
+      autoInterval = setInterval(autoRefresh, 60000);
+    }
     setStatus('live');
   } catch(e){
     console.error(e); setStatus('error');
