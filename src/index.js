@@ -162,6 +162,65 @@ async function handleVix(url, env) {
   }
 }
 
+// ── /api/vannacharm ──
+// VannaCharm Premium API 프록시 + KV 캐싱
+// ?symbol=SPY&type=summary|gex|vex|chex|levels
+// 3명이 동시 접속해도 KV 캐시로 1회만 호출
+async function handleVannaCharm(url, env) {
+  const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+  const type   = url.searchParams.get('type') || 'summary'; // summary | gex | vex | chex | levels
+
+  // 엔드포인트 매핑
+  const endpointMap = {
+    summary: `exposure/summary/${symbol}`,  // GEX+DEX+VEX+CHEX 전체 요약
+    gex:     `exposure/gex/${symbol}`,       // 스트라이크별 GEX
+    vex:     `exposure/vex/${symbol}`,       // Vanna Exposure
+    chex:    `exposure/chex/${symbol}`,      // Charm Exposure
+    levels:  `exposure/levels/${symbol}`,    // Flip Zone, Call/Put Wall, 0DTE magnet
+  };
+
+  const endpoint = endpointMap[type];
+  if (!endpoint) return json({ error: 'Invalid type' }, 400);
+
+  // 캐시 TTL: summary/levels는 5분, gex/vex/chex는 3분
+  const ttl = (type === 'summary' || type === 'levels') ? 300 : 180;
+  const cacheKey = `vc:${type}:${symbol}`;
+
+  try {
+    const data = await withCache(env, cacheKey, ttl, async () => {
+      const r = await fetch(
+        `https://lab.flashalpha.com/v1/${endpoint}`,
+        {
+          headers: {
+            'X-Api-Key': env.VANNACHARM_KEY,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      if (!r.ok) throw new Error(`VannaCharm ${r.status}: ${await r.text()}`);
+      return r.json();
+    });
+
+    // 마켓 상태 병기 (프리마켓 여부 판단용)
+    const now = new Date();
+    const estOffset = -5; // EST (서머타임 -4, 겨울 -5 — 단순화)
+    const estHour = (now.getUTCHours() + 24 + estOffset) % 24;
+    const estMin  = now.getUTCMinutes();
+    const estTime = estHour + estMin / 60;
+
+    let marketSession;
+    if      (estTime >= 4   && estTime < 9.5)  marketSession = 'PRE';
+    else if (estTime >= 9.5 && estTime < 16)   marketSession = 'REGULAR';
+    else if (estTime >= 16  && estTime < 20)   marketSession = 'POST';
+    else                                        marketSession = 'CLOSED';
+
+    return json({ ...data, _meta: { symbol, type, marketSession, cachedAt: new Date().toISOString() } });
+  } catch (err) {
+    return json({ error: err.message, symbol, type }, 500);
+  }
+}
+
 // ── 메인 라우터 ──
 export default {
   async fetch(request, env) {
@@ -172,9 +231,10 @@ export default {
       return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (url.pathname === '/api/options') return handleOptions(url, env);
-    if (url.pathname === '/api/price')   return handlePrice(url, env);
-    if (url.pathname === '/api/vix')     return handleVix(url, env);
+    if (url.pathname === '/api/options')    return handleOptions(url, env);
+    if (url.pathname === '/api/price')      return handlePrice(url, env);
+    if (url.pathname === '/api/vix')        return handleVix(url, env);
+    if (url.pathname === '/api/vannacharm') return handleVannaCharm(url, env);
 
     return json({ error: 'Not found' }, 404);
   },
