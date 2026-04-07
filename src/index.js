@@ -128,7 +128,7 @@ async function handleVix(url, env) {
   const cacheKey = `vix:${symbols.join(',')}`;
 
   try {
-    const data = await withCache(env, cacheKey, 60, async () => {
+    const data = await withCache(env, cacheKey, 15, async () => {
       const results = {};
       await Promise.all(symbols.map(async (sym) => {
         try {
@@ -199,11 +199,17 @@ async function handleVannaCharm(url, env) {
         signal: AbortSignal.timeout(15000),
       });
       if (!r.ok) throw new Error(`VannaCharm ${r.status}: ${await r.text()}`);
-      return r.json();
+      const json = await r.json();
+      // 빈 데이터는 캐시하지 않음 — 장 시작 후 재시도 가능하도록
+      if (!json.data || json.data.length === 0) throw new Error('EMPTY');
+      return json;
     });
 
     return json({ ...data, _meta: { symbol, tradeDate, marketSession, cachedAt: new Date().toISOString() } });
   } catch (err) {
+    if (err.message === 'EMPTY') {
+      return json({ data: [], success: true, _meta: { symbol, tradeDate, marketSession, cachedAt: new Date().toISOString() } });
+    }
     return json({ error: err.message, symbol }, 500);
   }
 }
