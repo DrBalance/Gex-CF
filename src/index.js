@@ -164,60 +164,47 @@ async function handleVix(url, env) {
 
 // ── /api/vannacharm ──
 // VannaCharm Premium API 프록시 + KV 캐싱
-// ?symbol=SPY&type=summary|gex|vex|chex|levels
-// 3명이 동시 접속해도 KV 캐시로 1회만 호출
+// ?symbol=SPY&date=2026-04-07 (date 생략 시 오늘)
 async function handleVannaCharm(url, env) {
   const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
-  const type   = url.searchParams.get('type') || 'summary'; // summary | gex | vex | chex | levels
 
-  // 엔드포인트 매핑
-  const endpointMap = {
-    summary: `exposure/summary/${symbol}`,  // GEX+DEX+VEX+CHEX 전체 요약
-    gex:     `exposure/gex/${symbol}`,       // 스트라이크별 GEX
-    vex:     `exposure/vex/${symbol}`,       // Vanna Exposure
-    chex:    `exposure/chex/${symbol}`,      // Charm Exposure
-    levels:  `exposure/levels/${symbol}`,    // Flip Zone, Call/Put Wall, 0DTE magnet
-  };
+  // 오늘 날짜 EST 기준
+  const now = new Date();
+  const estDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const yyyy = estDate.getFullYear();
+  const mm   = String(estDate.getMonth() + 1).padStart(2, '0');
+  const dd   = String(estDate.getDate()).padStart(2, '0');
+  const tradeDate = url.searchParams.get('date') || `${yyyy}-${mm}-${dd}`;
 
-  const endpoint = endpointMap[type];
-  if (!endpoint) return json({ error: 'Invalid type' }, 400);
+  // 마켓 세션 판단
+  const estHour = estDate.getHours() + estDate.getMinutes() / 60;
+  let marketSession;
+  if      (estHour >= 4   && estHour < 9.5)  marketSession = 'PRE';
+  else if (estHour >= 9.5 && estHour < 16)   marketSession = 'REGULAR';
+  else if (estHour >= 16  && estHour < 20)   marketSession = 'POST';
+  else                                        marketSession = 'CLOSED';
 
-  // 캐시 TTL: summary/levels는 5분, gex/vex/chex는 3분
-  const ttl = (type === 'summary' || type === 'levels') ? 300 : 180;
-  const cacheKey = `vc:${type}:${symbol}`;
+  // 장중 1분 캐시, 그 외 5분 캐시
+  const ttl = marketSession === 'REGULAR' ? 60 : 300;
+  const cacheKey = `vc:${symbol}:${tradeDate}`;
 
   try {
     const data = await withCache(env, cacheKey, ttl, async () => {
-      const r = await fetch(
-        `https://lab.flashalpha.com/v1/${endpoint}`,
-        {
-          headers: {
-            'X-Api-Key': env.VANNACHARM_KEY,
-            'Accept': 'application/json',
-          },
-          signal: AbortSignal.timeout(10000),
-        }
-      );
+      const vcUrl = `https://vannacharm.com/api/getMinuteSurfaces?symbol=${symbol}&trade_date=${tradeDate}`;
+      const r = await fetch(vcUrl, {
+        headers: {
+          'X-API-Key': env.VANNACHARM_KEY,
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
       if (!r.ok) throw new Error(`VannaCharm ${r.status}: ${await r.text()}`);
       return r.json();
     });
 
-    // 마켓 상태 병기 (프리마켓 여부 판단용)
-    const now = new Date();
-    const estOffset = -5; // EST (서머타임 -4, 겨울 -5 — 단순화)
-    const estHour = (now.getUTCHours() + 24 + estOffset) % 24;
-    const estMin  = now.getUTCMinutes();
-    const estTime = estHour + estMin / 60;
-
-    let marketSession;
-    if      (estTime >= 4   && estTime < 9.5)  marketSession = 'PRE';
-    else if (estTime >= 9.5 && estTime < 16)   marketSession = 'REGULAR';
-    else if (estTime >= 16  && estTime < 20)   marketSession = 'POST';
-    else                                        marketSession = 'CLOSED';
-
-    return json({ ...data, _meta: { symbol, type, marketSession, cachedAt: new Date().toISOString() } });
+    return json({ ...data, _meta: { symbol, tradeDate, marketSession, cachedAt: new Date().toISOString() } });
   } catch (err) {
-    return json({ error: err.message, symbol, type }, 500);
+    return json({ error: err.message, symbol }, 500);
   }
 }
 
