@@ -312,36 +312,96 @@ async function loadVannaCharm() {
   } catch(e) { console.error('VannaCharm load error:', e); return null; }
 }
 
-// ── VannaCharm 조언 생성 ──
+// ── VannaCharm 통합 의견 생성 ──
 function buildVCAdvice(data, tab) {
   if (!data.length) return { cls:'', text:'데이터 없음' };
   const last = data[data.length - 1];
   const surf = last.surfaces_jsonb;
+  const mid = Math.floor((surf.vanna?.length || 1) / 2);
 
-  // ATM 기준 (중간 인덱스)
-  const mid = Math.floor(surf[tab].length / 2);
-  const atm = surf[tab][mid] || 0;
-  const prev = data.length > 5 ? data[data.length-6].surfaces_jsonb[tab][mid] || 0 : atm;
-  const delta = atm - prev;
+  // 각 Greek ATM 값
+  const vanna = surf.vanna?.[mid] || 0;
+  const charm = surf.charm?.[mid] || 0;
+  const gamma = surf.gamma?.[mid] || 0;
 
+  // 5분 전 대비 변화
+  const prev5 = data.length > 5 ? data[data.length - 6] : null;
+  const prevVanna = prev5?.surfaces_jsonb?.vanna?.[mid] || vanna;
+  const prevCharm = prev5?.surfaces_jsonb?.charm?.[mid] || charm;
+  const vannaDelta = vanna - prevVanna;
+  const charmDelta = charm - prevCharm;
+
+  // ── 핵심 판단 1: Charm vs Vanna 지배 구조 ──
+  const absCharm = Math.abs(charm);
+  const absVanna = Math.abs(vanna);
+  const charmDominant = absCharm > absVanna;
+  const ratio = absVanna > 0 ? (absCharm / absVanna).toFixed(1) : '∞';
+
+  // ── 핵심 판단 2: 현재 세션 시간 (EST) ──
+  const now = new Date();
+  const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = est.getHours() + est.getMinutes() / 60;
+  const isAfternoon = estHour >= 13; // 오후 1시 이후
+
+  // ── 탭별 개별 설명 ──
+  let tabText = '';
   if (tab === 'vanna') {
-    if (atm > 0 && delta > 0) return { cls:'bear', text: `<b>Vanna 양수 상승 중</b> — IV 하락 시 딜러 매수 헷지. 단기 지지 가능하나 과도 상승 후 반전 주의.` };
-    if (atm > 0 && delta < 0) return { cls:'warn', text: `<b>Vanna 양수 감소 중</b> — 딜러 헷지 되감기 시작. 상승 모멘텀 약화.` };
-    if (atm < 0 && delta < 0) return { cls:'bull', text: `<b>Vanna 음수 확대</b> — IV 하락 시 딜러 매도 헷지. 하락 압력 증가.` };
-    if (atm < 0 && delta > 0) return { cls:'warn', text: `<b>Vanna 음수 완화</b> — 하락 압력 줄어드는 중. 반등 가능성 탐색.` };
+    if (vanna > 0 && vannaDelta > 0) tabText = `Vanna <b>양수 상승</b> — IV 하락 시 딜러 매수 헷지 강화. 단기 지지.`;
+    else if (vanna > 0 && vannaDelta < 0) tabText = `Vanna <b>양수 감소</b> — 딜러 매수 헷지 되감기. 상승 모멘텀 약화.`;
+    else if (vanna > 0) tabText = `Vanna <b>양수 유지</b> — 딜러 매수 방향 유지 중.`;
+    else if (vanna < 0 && vannaDelta < 0) tabText = `Vanna <b>음수 확대</b> — IV 하락 시 딜러 매도 헷지. 하락 압력 증가.`;
+    else if (vanna < 0 && vannaDelta > 0) tabText = `Vanna <b>음수 완화</b> — 하락 압력 줄어드는 중. 반등 가능성.`;
+    else tabText = `Vanna <b>음수 유지</b> — 딜러 매도 방향 유지 중.`;
+  } else if (tab === 'charm') {
+    if (charm < 0) tabText = `Charm <b>음수</b> — 시간 경과로 딜러 매수 강제. ${isAfternoon ? '오후 상승 드리프트 진행 중.' : '오후 1시 이후 상승 드리프트 가능.'}`;
+    else if (charm > 0) tabText = `Charm <b>양수</b> — 시간 경과로 딜러 매도 강제. ${isAfternoon ? '오후 하락 드리프트 진행 중.' : '오후 1시 이후 하락 드리프트 가능.'}`;
+    else tabText = `Charm <b>중립</b> — 시간에 의한 방향 압력 없음.`;
+  } else if (tab === 'gamma') {
+    if (gamma > 0) tabText = `Gamma <b>양수 (Positive GEX)</b> — 딜러가 변동성 억제. 피닝 가능성.`;
+    else tabText = `Gamma <b>음수 (Negative GEX)</b> — 딜러가 추세 증폭. 방향성 강화.`;
+  } else if (tab === 'iv') {
+    const atm = surf.iv?.[mid] || 0;
+    const prevIV = prev5?.surfaces_jsonb?.iv?.[mid] || atm;
+    const ivDelta = atm - prevIV;
+    tabText = `ATM IV <b>${(atm * 100).toFixed(1)}%</b> — ${ivDelta > 0 ? 'IV 상승 중 (변동성 확대)' : 'IV 하락 중 (Vanna/Charm 언와인드 주목)'}.`;
+  } else if (tab === 'vix') {
+    tabText = `VIX <b>${last.vix?.toFixed(2) || '—'}</b> — ${last.vix > 20 ? '변동성 확대 국면. Vanna 언와인드 주의.' : '변동성 안정 국면.'}`;
   }
-  if (tab === 'charm') {
-    if (atm < 0) return { cls:'bull', text: `<b>Charm 음수</b> — 시간 경과에 따라 딜러 매수 방향. 장 후반 상승 드리프트 가능.` };
-    if (atm > 0) return { cls:'bear', text: `<b>Charm 양수</b> — 시간 경과에 따라 딜러 매도 방향. 장 후반 하락 드리프트 가능.` };
+
+  // ── 통합 의견 (항상 표시) ──
+  let opinion = '';
+  let cls = '';
+
+  if (charmDominant && isAfternoon) {
+    // Charm 지배 + 오후 → 드리프트 방향이 핵심
+    if (charm < 0) {
+      cls = 'bull';
+      opinion = `<b>⚡ Charm이 Vanna를 압도 (비율 ${ratio}×)</b> — 지금은 <b>시간이 IV보다 강합니다.</b> 딜러가 시간 경과로 매수를 강제받는 구조. 오후 상승 드리프트 우세. Vanna 방향보다 Charm 방향 추종 권장.`;
+    } else {
+      cls = 'bear';
+      opinion = `<b>⚡ Charm이 Vanna를 압도 (비율 ${ratio}×)</b> — 지금은 <b>시간이 IV보다 강합니다.</b> 딜러가 시간 경과로 매도를 강제받는 구조. 오후 하락 드리프트 우세. Vanna 방향보다 Charm 방향 추종 권장.`;
+    }
+  } else if (charmDominant && !isAfternoon) {
+    cls = 'warn';
+    opinion = `<b>Charm > Vanna (비율 ${ratio}×)</b> — 오후 1시 이후 시간 압력이 가격 방향을 결정할 가능성 높습니다. Charm 부호(${charm < 0 ? '음수→상승' : '양수→하락'}) 주목.`;
+  } else if (!charmDominant && absVanna > 0) {
+    // Vanna 지배
+    if (vanna > 0) {
+      cls = '';
+      opinion = `<b>Vanna가 Charm을 압도 (비율 ${ratio}×)</b> — <b>IV 변화가 가격 방향을 결정합니다.</b> VIX 하락 시 딜러 매수 → 지지. VIX 상승 시 헷지 역전 주의.`;
+    } else {
+      cls = 'bear';
+      opinion = `<b>Vanna가 Charm을 압도 (비율 ${ratio}×)</b> — <b>IV 변화가 가격 방향을 결정합니다.</b> VIX 하락해도 딜러 매도 압력. 반등 신호는 VIX 급락 + Vanna 전환 동시 확인.`;
+    }
   }
-  if (tab === 'gamma') {
-    if (atm > 0) return { cls:'', text: `<b>Gamma 양수 (Positive GEX)</b> — 딜러가 변동성 억제. 현재가 피닝 가능성.` };
-    if (atm < 0) return { cls:'bear', text: `<b>Gamma 음수 (Negative GEX)</b> — 딜러가 추세 증폭. 방향성 강화.` };
+
+  // Gamma 피닝 추가
+  if (gamma > 0 && Math.abs(gamma) > Math.abs(vanna) * 0.5) {
+    opinion += ` <span style="color:var(--green)">Gamma 양수 — 피닝 구조 유지 중.</span>`;
   }
-  if (tab === 'iv') {
-    return { cls:'', text: `<b>ATM IV ${(atm*100).toFixed(1)}%</b> — ${delta > 0 ? 'IV 상승 중 (변동성 확대)' : 'IV 하락 중 (변동성 수축, Vanna/Charm 언와인드 주목)'}` };
-  }
-  return { cls:'', text:'분석 중...' };
+
+  const fullText = `${tabText}${opinion ? `<br><br>${opinion}` : ''}`;
+  return { cls, text: fullText };
 }
 
 // ── VannaCharm 차트 렌더 ──
