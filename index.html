@@ -370,11 +370,11 @@ function renderForceSidebar(force) {
 
     <div class="force-item">
       <div class="force-label">
-        <span class="force-name">Vanna</span>
-        <span class="force-pct" style="color:${getBarColor(vanna.strength)}">${vanna.strength.toFixed(0)}%</span>
+        <span class="force-name" style="color:#bc8cff">● Vanna</span>
+        <span class="force-pct" style="color:#bc8cff">${vanna.strength.toFixed(0)}%</span>
       </div>
       <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${vanna.strength}%;background:${getBarColor(vanna.strength)}"></div>
+        <div class="force-bar-fill" style="width:${vanna.strength}%;background:#bc8cff;opacity:${0.4 + vanna.strength/200}"></div>
       </div>
       <div class="force-status">${vannaLabel} / ${vannaActiveLabel}</div>
       <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${vanna.value.toFixed(0)}M ${vanna.vixChange !== 0 ? `(VIX ${vanna.vixChange>0?'+':''}${vanna.vixChange.toFixed(1)}%)` : ''}</div>
@@ -382,11 +382,11 @@ function renderForceSidebar(force) {
 
     <div class="force-item">
       <div class="force-label">
-        <span class="force-name">Charm</span>
-        <span class="force-pct" style="color:${getBarColor(charm.strength)}">${charm.strength.toFixed(0)}%</span>
+        <span class="force-name" style="color:#58a6ff">● Charm</span>
+        <span class="force-pct" style="color:#58a6ff">${charm.strength.toFixed(0)}%</span>
       </div>
       <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${charm.strength}%;background:${getBarColor(charm.strength)}"></div>
+        <div class="force-bar-fill" style="width:${charm.strength}%;background:#58a6ff;opacity:${0.4 + charm.strength/200}"></div>
       </div>
       <div class="force-status">${charmLabel} / ${charmActiveLabel}</div>
       <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${charm.value.toFixed(0)}M</div>
@@ -394,11 +394,11 @@ function renderForceSidebar(force) {
 
     <div class="force-item">
       <div class="force-label">
-        <span class="force-name">GEX</span>
-        <span class="force-pct" style="color:${gex.dir==='pin'?'var(--green)':'var(--red)'}">${gex.strength.toFixed(0)}%</span>
+        <span class="force-name" style="color:#3fb950">● GEX</span>
+        <span class="force-pct" style="color:${gex.dir==='pin'?'#3fb950':'#f85149'}">${gex.strength.toFixed(0)}%</span>
       </div>
       <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${gex.strength}%;background:${gex.dir==='pin'?'var(--green)':'var(--red)'}"></div>
+        <div class="force-bar-fill" style="width:${gex.strength}%;background:${gex.dir==='pin'?'#3fb950':'#f85149'}"></div>
       </div>
       <div class="force-status">${gexLabel}</div>
       <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${gex.value>0?'+':''}${gex.value.toFixed(0)}M</div>
@@ -454,7 +454,7 @@ function renderVCChart(tab) {
   if (tab === 'vanna' || tab === 'charm') {
     const isVanna = tab === 'vanna';
     const greekData = vcHistory.map(h => isVanna ? h.vanna : h.charm);
-    const greekColor = isVanna ? '#bc8cff' : '#f0883e';
+    const greekColor = isVanna ? '#bc8cff' : '#58a6ff';
     const greekLabel = isVanna ? 'Vanna (M)' : 'Charm (M)';
     const vixData = vcHistory.map(h => h.vix);
 
@@ -479,7 +479,7 @@ function renderVCChart(tab) {
           {
             label: 'VIX',
             data: vixData,
-            borderColor: '#f85149',
+            borderColor: '#d29922',
             backgroundColor: 'transparent',
             fill: false,
             borderWidth: 1.5,
@@ -515,7 +515,7 @@ function renderVCChart(tab) {
           },
           yVix: {
             position: 'right',
-            ticks: { color: '#f85149', font:{ size:10 }, callback: v => v.toFixed(1) },
+            ticks: { color: '#d29922', font:{ size:10 }, callback: v => v.toFixed(1) },
             grid: { drawOnChartArea: false },
           }
         }
@@ -859,8 +859,16 @@ async function autoRefresh() {
     // Vanna/Charm 메트릭 업데이트
     const mVanna = document.getElementById('metric-vanna');
     const mCharm = document.getElementById('metric-charm');
-    if (mVanna) { mVanna.querySelector('.val').textContent = vc.totalVanna.toFixed(1)+'M'; mVanna.className='metric'+(vc.totalVanna<-4?' red':vc.totalVanna>4?' green':''); }
-    if (mCharm) { mCharm.querySelector('.val').textContent = vc.totalCharm.toFixed(1)+'M'; mCharm.className='metric'+(Math.abs(vc.totalCharm)>2?' yellow':''); }
+    if (mVanna) {
+      mVanna.querySelector('.val').textContent = vc.totalVanna.toFixed(1)+'M';
+      mVanna.style.borderColor = '#bc8cff55';
+      mVanna.querySelector('.val').style.color = '#bc8cff';
+    }
+    if (mCharm) {
+      mCharm.querySelector('.val').textContent = vc.totalCharm.toFixed(1)+'M';
+      mCharm.style.borderColor = '#58a6ff55';
+      mCharm.querySelector('.val').style.color = '#58a6ff';
+    }
 
     // 힘의 균형 업데이트
     const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
@@ -1048,8 +1056,8 @@ function render(d){
       <div class="metric ${localGEX<0?'red':'green'}"><div class="val">${(localGEX/1e6).toFixed(1)}M</div><div class="lbl">Local GEX</div></div>
       <div class="metric ${vixCls}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
       <div class="metric ${vvixCls}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
-      <div class="metric" id="metric-vanna"><div class="val">${vc.totalVanna.toFixed(1)}M</div><div class="lbl">Vanna Exp</div></div>
-      <div class="metric" id="metric-charm"><div class="val">${vc.totalCharm.toFixed(1)}M</div><div class="lbl">Charm Exp</div></div>
+      <div class="metric" id="metric-vanna" style="border-color:#bc8cff55"><div class="val" style="color:#bc8cff">${vc.totalVanna.toFixed(1)}M</div><div class="lbl" style="color:#bc8cff">● Vanna Exp</div></div>
+      <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${vc.totalCharm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm Exp</div></div>
     </div>
 
     <!-- 통합 상황판단 -->
@@ -1082,12 +1090,18 @@ function render(d){
     <div class="vc-chart-area">
       <div class="vc-chart-header">
         <div class="vc-chart-title">◈ Greek 실시간 흐름 (CBOE 기반)</div>
-        <div class="vc-tabs">
-          <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')">Vanna</button>
-          <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')">Charm</button>
-          <button class="vc-tab" id="vc-tab-gex" onclick="renderVCChart('gex')">GEX</button>
-          <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')">VIX</button>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#bc8cff;font-weight:600">● Vanna</span>
+          <span style="font-size:12px;color:#58a6ff;font-weight:600">● Charm</span>
+          <span style="font-size:12px;color:#d29922;font-weight:600;border-bottom:2px dashed #d29922;padding-bottom:1px">- - VIX</span>
+          <span style="font-size:12px;color:#3fb950;font-weight:600">● GEX</span>
         </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+        <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')" style="font-size:11px;padding:3px 8px">Vanna+VIX</button>
+        <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')" style="font-size:11px;padding:3px 8px">Charm+VIX</button>
+        <button class="vc-tab" id="vc-tab-gex" onclick="renderVCChart('gex')" style="font-size:11px;padding:3px 8px">GEX</button>
+        <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')" style="font-size:11px;padding:3px 8px">VIX</button>
       </div>
       <div class="vc-zoom-row">
         <span class="vc-zoom-label">확대</span>
