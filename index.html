@@ -256,10 +256,10 @@ let zoomLevel = 1;
 let activeTooltipIdx = null;
 
 // VannaCharm 관련
-let vcData = [];          // 분단위 VannaCharm 데이터 누적
-let vcChartInst = null;   // VannaCharm 차트 인스턴스
-let vcActiveTab = 'vanna'; // 현재 활성 탭
-let vcInterval = null;    // VannaCharm 자동갱신 인터벌
+let vcData = [];
+let vcChartInst = null;
+let vcActiveTab = 'vanna';
+let vcInterval = null;
 
 window.addEventListener('DOMContentLoaded', () => { loadExpirations(); loadVIX(); });
 document.getElementById('sym-select').addEventListener('change', () => { allOptions=[]; loadExpirations(); });
@@ -275,7 +275,6 @@ async function loadVIX() {
 }
 
 function updateVIXMetrics() {
-  // 메트릭 카드 업데이트 (render 후 호출)
   const vm = document.getElementById('metric-vix');
   const vvm = document.getElementById('metric-vvix');
   if (vm && vixVal) {
@@ -297,7 +296,6 @@ async function loadVannaCharm() {
     const json = await res.json();
     if (!json.data || !json.data.length) return null;
 
-    // 새 데이터만 추가 (중복 제거)
     const existing = new Set(vcData.map(d => d.session_minute));
     let added = 0;
     for (const row of json.data) {
@@ -319,31 +317,26 @@ function buildVCAdvice(data, tab) {
   const surf = last.surfaces_jsonb;
   const mid = Math.floor((surf.vanna?.length || 1) / 2);
 
-  // 각 Greek ATM 값
   const vanna = surf.vanna?.[mid] || 0;
   const charm = surf.charm?.[mid] || 0;
   const gamma = surf.gamma?.[mid] || 0;
 
-  // 5분 전 대비 변화
   const prev5 = data.length > 5 ? data[data.length - 6] : null;
   const prevVanna = prev5?.surfaces_jsonb?.vanna?.[mid] || vanna;
   const prevCharm = prev5?.surfaces_jsonb?.charm?.[mid] || charm;
   const vannaDelta = vanna - prevVanna;
   const charmDelta = charm - prevCharm;
 
-  // ── 핵심 판단 1: Charm vs Vanna 지배 구조 ──
   const absCharm = Math.abs(charm);
   const absVanna = Math.abs(vanna);
   const charmDominant = absCharm > absVanna;
   const ratio = absVanna > 0 ? (absCharm / absVanna).toFixed(1) : '∞';
 
-  // ── 핵심 판단 2: 현재 세션 시간 (EST) ──
   const now = new Date();
   const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const estHour = est.getHours() + est.getMinutes() / 60;
-  const isAfternoon = estHour >= 13; // 오후 1시 이후
+  const isAfternoon = estHour >= 13;
 
-  // ── 탭별 개별 설명 ──
   let tabText = '';
   if (tab === 'vanna') {
     if (vanna > 0 && vannaDelta > 0) tabText = `Vanna <b>양수 상승</b> — IV 하락 시 딜러 매수 헷지 강화. 단기 지지.`;
@@ -368,12 +361,10 @@ function buildVCAdvice(data, tab) {
     tabText = `VIX <b>${last.vix?.toFixed(2) || '—'}</b> — ${last.vix > 20 ? '변동성 확대 국면. Vanna 언와인드 주의.' : '변동성 안정 국면.'}`;
   }
 
-  // ── 통합 의견 (항상 표시) ──
   let opinion = '';
   let cls = '';
 
   if (charmDominant && isAfternoon) {
-    // Charm 지배 + 오후 → 드리프트 방향이 핵심
     if (charm < 0) {
       cls = 'bull';
       opinion = `<b>⚡ Charm이 Vanna를 압도 (비율 ${ratio}×)</b> — 지금은 <b>시간이 IV보다 강합니다.</b> 딜러가 시간 경과로 매수를 강제받는 구조. 오후 상승 드리프트 우세. Vanna 방향보다 Charm 방향 추종 권장.`;
@@ -385,7 +376,6 @@ function buildVCAdvice(data, tab) {
     cls = 'warn';
     opinion = `<b>Charm > Vanna (비율 ${ratio}×)</b> — 오후 1시 이후 시간 압력이 가격 방향을 결정할 가능성 높습니다. Charm 부호(${charm < 0 ? '음수→상승' : '양수→하락'}) 주목.`;
   } else if (!charmDominant && absVanna > 0) {
-    // Vanna 지배
     if (vanna > 0) {
       cls = '';
       opinion = `<b>Vanna가 Charm을 압도 (비율 ${ratio}×)</b> — <b>IV 변화가 가격 방향을 결정합니다.</b> VIX 하락 시 딜러 매수 → 지지. VIX 상승 시 헷지 역전 주의.`;
@@ -395,12 +385,10 @@ function buildVCAdvice(data, tab) {
     }
   }
 
-  // Gamma 피닝 추가
   if (gamma > 0 && Math.abs(gamma) > Math.abs(vanna) * 0.5) {
     opinion += ` <span style="color:var(--green)">Gamma 양수 — 피닝 구조 유지 중.</span>`;
   }
 
-  // ── Charm/Vanna 비율 판정 배지 ──
   let dominanceBadge = '';
   if (absCharm === 0 && absVanna === 0) {
     dominanceBadge = '';
@@ -424,12 +412,10 @@ function renderVCChart(tab) {
   const canvas = document.getElementById('vc-chart');
   if (!canvas || !vcData.length) return;
 
-  // 탭 버튼 활성화
   document.querySelectorAll('.vc-tab').forEach(b => b.classList.remove('active'));
   const activeBtn = document.getElementById(`vc-tab-${tab}`);
   if (activeBtn) activeBtn.classList.add('active');
 
-  // 데이터 추출 — ATM 기준 중간 스트라이크
   const labels = vcData.map(d => {
     const h = Math.floor(d.session_minute / 60) + 9;
     const m = String(d.session_minute % 60).padStart(2,'0');
@@ -481,7 +467,6 @@ function renderVCChart(tab) {
     }
   });
 
-  // 조언 업데이트
   const advice = buildVCAdvice(vcData, tab === 'vix' ? 'vanna' : tab);
   const advEl = document.getElementById('vc-advice');
   if (advEl) { advEl.className = `vc-advice ${advice.cls}`; advEl.innerHTML = advice.text; }
@@ -525,7 +510,6 @@ async function initVCPanel() {
 
   renderVCChart('vanna');
 
-  // 3분마다 자동갱신
   if (vcInterval) clearInterval(vcInterval);
   vcInterval = setInterval(async () => {
     await loadVannaCharm();
@@ -553,19 +537,18 @@ function toggleAuto() {
     if (!currentD) { alert('먼저 데이터를 로드해주세요'); return; }
     document.getElementById('auto-btn').className = 'auto-btn on';
     document.getElementById('auto-label').textContent = '자동갱신 ON';
-    autoRefresh(); // 즉시 1회
+    autoRefresh();
     autoInterval = setInterval(autoRefresh, 60000);
   }
 }
 
-// ── 자동갱신: 현재가 + VIX (정규장 중에는 VannaCharm에서 추출) ──
+// ── 자동갱신 ──
 async function autoRefresh() {
   if (!currentD) return;
   try {
     setStatus('updating');
     const sym = document.getElementById('sym-select').value.replace('_','');
 
-    // 현재 EST 시간으로 장 상태 판단
     const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
     const estH = estNow.getHours() + estNow.getMinutes() / 60;
     const isRegular = estH >= 9.5 && estH < 16;
@@ -573,23 +556,20 @@ async function autoRefresh() {
     let newSpot, marketState, priceLabel, prevClose, preMarketPct;
 
     if (isRegular && vcData.length) {
-      // 정규장 + VannaCharm 데이터 있으면 → VannaCharm에서 spot/vix 추출
       const last = vcData[vcData.length - 1];
       newSpot     = last.spot;
       vixVal      = last.vix;
       marketState = 'REGULAR';
       priceLabel  = 'regular';
-      prevClose   = currentD.spotPrice; // CBOE 로드 시 종가 기준
+      prevClose   = currentD.spotPrice;
       preMarketPct = null;
 
-      // VVIX는 별도 조회 (VannaCharm에 없음)
       fetch(`${PROXY}/api/vix?symbols=VVIX`).then(r=>r.json()).then(j=>{
         vvixVal = j.VVIX?.price;
         updateVIXMetrics();
       }).catch(()=>{});
 
     } else {
-      // 프리마켓/애프터 → 기존 방식 (Yahoo Finance)
       const [priceJson, vixJson] = await Promise.all([
         fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
         fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
@@ -606,15 +586,12 @@ async function autoRefresh() {
     const now = new Date();
     const timeStr = now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    // 히스토리 기록 (최대 60개 = 60분), 상태 정보 포함
     priceHistory.push({ time:timeStr, price:newSpot, marketState, priceLabel, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
 
-    // 상황 판단 — 프리마켓 컨텍스트 전달
     const judgment = analyzeRealtime(newSpot, priceHistory, currentD, { marketState, priceLabel, preMarketPct, prevClose });
     const unwind   = detectUnwind(priceHistory, currentD);
 
-    // UI 업데이트
     const stateLabel = { PRE:'프리마켓', REGULAR:'정규장', POST:'애프터', CLOSED:'마감' }[marketState] || marketState;
     document.getElementById('data-time').textContent = `${stateLabel} ${timeStr}`;
     updateVIXMetrics();
@@ -622,7 +599,6 @@ async function autoRefresh() {
     renderJudgment(judgment, timeStr, newSpot);
     renderUnwind(unwind, timeStr);
 
-    // 내러티브 실시간 갱신 (프리마켓/정규장 현재가 반영)
     const narrEl = document.getElementById('narrative-body');
     if (narrEl && currentD) {
       const liveCtx = { livePrice: newSpot, marketState, prevClose };
@@ -630,7 +606,6 @@ async function autoRefresh() {
       if (freshNarr) narrEl.innerHTML = freshNarr.main;
     }
 
-    // 프리마켓 반전 패널 실시간 업데이트 (PRE / REGULAR 개장 초 모두 유효)
     const pmPanel = document.getElementById('premarket-panel');
     if (pmPanel && currentD) {
       const liveVC = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
@@ -648,7 +623,6 @@ async function autoRefresh() {
       if (pmCharm) pmCharm.textContent = liveVC.totalCharm.toFixed(1)+'M';
       if (pmSkew)  pmSkew.textContent  = liveRev.putSkew.toFixed(2);
       if (pmScore) pmScore.textContent  = liveRev.score+'/6';
-      // Vanna 메트릭 카드도 업데이트
       const mVanna = document.getElementById('metric-vanna');
       const mCharm = document.getElementById('metric-charm');
       if (mVanna) { mVanna.querySelector('.val').textContent = liveVC.totalVanna.toFixed(1)+'M'; mVanna.className='metric'+(liveVC.totalVanna>4?' red':liveVC.totalVanna<-4?' green':''); }
@@ -668,7 +642,6 @@ function analyzeRealtime(newSpot, history, d, ctx) {
   const priceLabel   = ctx.priceLabel   || 'regular';
   const preMarketPct = ctx.preMarketPct || null;
   const prevClose    = ctx.prevClose    || null;
-  // 기준가: 프리마켓이면 전일 종가, 정규장이면 CBOE 로드 시 종가
   const base = (marketState === 'PRE' && prevClose) ? prevClose : d.spotPrice;
   const pctChange = (newSpot - base) / base * 100;
   const vixUp = history.length >= 3 && history[history.length-1].vix > history[history.length-3].vix * 1.03;
@@ -677,7 +650,6 @@ function analyzeRealtime(newSpot, history, d, ctx) {
   let trend = 'neutral', message = '', detail = '';
   const events = [];
 
-  // 현재가가 어느 헷지 구간에 있는지 판단
   const breachedDn = dnStrikes.filter(s => newSpot <= s.strike).sort((a,b)=>b.strike-a.strike);
   const breachedUp = upStrikes.filter(s => newSpot >= s.strike).sort((a,b)=>a.strike-b.strike);
 
@@ -702,7 +674,6 @@ function analyzeRealtime(newSpot, history, d, ctx) {
     message = `▲ 소폭 상승 (${pctChange.toFixed(2)}%)`;
   }
 
-  // 반전 신호 감지
   if (history.length >= 5) {
     const recent5 = history.slice(-5).map(h=>h.price);
     const prev3Avg = (recent5[0]+recent5[1]+recent5[2])/3;
@@ -723,7 +694,6 @@ function analyzeRealtime(newSpot, history, d, ctx) {
 
   if (!message) { trend='neutral'; message='→ 중립 (기준가 ±0.5% 이내)'; }
 
-  // 프리마켓 컨텍스트 추가
   const priceContext = marketState === 'PRE'
     ? `프리마켓 (전일종가 $${prevClose?.toFixed(2)} 기준)`
     : marketState === 'POST' ? '애프터마켓' : '정규장';
@@ -736,28 +706,23 @@ function detectUnwind(history, d) {
   if (history.length < 5) return null;
   const { totalGEX, spotPrice: baseSpot } = d;
 
-  // 최근 가격 흐름 분석
   const recent = history.slice(-10);
   const prices = recent.map(h=>h.price);
   const vixes  = recent.map(h=>h.vix).filter(Boolean);
 
-  // 가격 변동성 감소 체크 (표준편차)
   const mean = prices.reduce((a,b)=>a+b,0)/prices.length;
   const variance = prices.reduce((a,b)=>a+(b-mean)**2,0)/prices.length;
   const stdDev = Math.sqrt(variance);
   const pctStd = stdDev / mean * 100;
 
-  // VIX 하락 속도
   const vixSlope = vixes.length >= 4
     ? (vixes[vixes.length-1] - vixes[0]) / vixes[0] * 100
     : 0;
 
-  // 현재가가 기준가로 회귀하고 있는지
   const currentPct = (prices[prices.length-1] - baseSpot) / baseSpot * 100;
   const prevPct = (prices[Math.floor(prices.length/2)] - baseSpot) / baseSpot * 100;
   const reversion = Math.abs(currentPct) < Math.abs(prevPct) - 0.2;
 
-  // 언와인드 신호 판단
   let signal = null, detail = '';
 
   if (pctStd < 0.05 && Math.abs(currentPct) > 0.5 && reversion) {
@@ -839,14 +804,13 @@ async function loadExpirations() {
     spotPrice = json.data.current_price;
     allOptions = json.data.options;
 
-    // 오늘 날짜 EST 기준
     const todayEST = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 
     const exps = [...new Set(allOptions.map(o=>{
       const m=o.option.trim().match(/(\d{6})[CP]/); if(!m) return null;
       return `20${m[1].slice(0,2)}-${m[1].slice(2,4)}-${m[1].slice(4,6)}`;
     }).filter(Boolean))]
-      .filter(e => e >= todayEST) // 오늘 포함 미래 만기일만
+      .filter(e => e >= todayEST)
       .sort();
 
     const sel = document.getElementById('exp-select');
@@ -919,7 +883,6 @@ async function loadData() {
     currentD=d;
     render(d);
     initVCPanel();
-    // 데이터 로드 완료 후 자동갱신 자동 시작
     if (!autoInterval) {
       document.getElementById('auto-btn').className = 'auto-btn on';
       document.getElementById('auto-label').textContent = '자동갱신 ON';
@@ -943,31 +906,42 @@ function setStatus(s){
 
 function updateSpotMetric(newSpot, marketState, priceLabel, preMarketPct, prevClose) {
   const m = document.getElementById('metric-spot'); if (!m) return;
-  if (!currentD) return; // 방어: 최초 autoRefresh가 render() 이전에 도달하는 경우 대비
+  if (!currentD) return;
   const base = (marketState === 'PRE' && prevClose) ? prevClose : currentD.spotPrice;
   const pct = ((newSpot - base) / base * 100);
   const stateTag = { PRE:'[프리]', POST:'[애프터]', CLOSED:'[마감]' }[marketState] || '';
   m.querySelector('.val').textContent = stateTag + '$' + newSpot.toFixed(1);
   m.querySelector('.lbl').textContent = `현재가 ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-  // 프리마켓이면 카드 테두리 강조
   m.style.borderColor = marketState === 'PRE' ? 'rgba(188,140,255,.5)'
     : marketState === 'POST' ? 'rgba(240,136,62,.5)' : '';
 }
 
-// ── Vanna / Charm Exposure 계산 ──
-// Vanna = ∂Δ/∂σ = vega × d2 / (S × σ × √T)  → 딜러 넷 포지션 기준 부호 반전
-// Charm = ∂Δ/∂t (근사) = -N'(d1) × [r/(σ√T) - d2/(2T)]
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ── [수정됨] Vanna / Charm Exposure 계산 ──
+// 핵심 수정: T가 0에 수렴할 때 Charm 공식의 d2/(2T) 항이 폭발하는
+// 수치 불안정 문제를 safeT 클램핑으로 해결
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function calculateVannaCharm(strikes, spotPrice, expDate) {
   const msToExp = new Date(expDate) - new Date();
-  const T = Math.max(msToExp / (1000*60*60*24*365), 1/(365*24*60)); // 최소 1분
-  const r = 0.045; // 무위험 이자율 근사
+
+  // ★ 수정 1: 최소 T를 1일(1/365)로 설정
+  // 기존: 1/(365*24*60) = 약 1분 → Charm 폭발 원인
+  // 수정: 1/365 = 약 1일 → 안정적인 하한값
+  const T = Math.max(msToExp / (1000*60*60*24*365), 1/365);
+
+  const r = 0.045;
+
+  // ★ 수정 2: Charm 계산용 safeT 추가
+  // 만기 당일(0DTE)에도 최소 0.5일로 클램핑하여 d2/(2T) 폭발 방지
+  const safeT = Math.max(T, 0.5/365);
 
   let totalVanna = 0, totalCharm = 0;
 
   strikes.forEach(s => {
     const K = s.strike;
-    const sigma = s.iv > 0 ? s.iv : 0.20; // IV 0이면 시장 평균 근사
+    const sigma = s.iv > 0 ? s.iv : 0.20;
     const sqrtT = Math.sqrt(T);
+    const safeSqrtT = Math.sqrt(safeT);
     const lnSK = Math.log(spotPrice / K);
 
     const d1 = (lnSK + (r + sigma*sigma/2)*T) / (sigma * sqrtT);
@@ -976,52 +950,45 @@ function calculateVannaCharm(strikes, spotPrice, expDate) {
     // 표준정규 PDF
     const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
 
-    // Vanna Exposure = N'(d1) × d2/σ × OI_net × 계약승수(100)
-    // 딜러는 매도 포지션 — 콜 OI는 딜러 숏콜, 풋 OI는 딜러 숏풋
-    const netOI = s.callOI - s.putOI; // 양수: 콜 편중, 음수: 풋 편중
+    // Vanna Exposure
+    const netOI = s.callOI - s.putOI;
     const vanna = nd1 * (d2 / sigma) * netOI * 100 * spotPrice;
     totalVanna += isFinite(vanna) ? vanna : 0;
 
-    // Charm Exposure = -N'(d1) × [r/(σ√T) - d2/(2T)] × netOI × 100
-    const charm = -nd1 * (r/(sigma*sqrtT) - d2/(2*T)) * netOI * 100;
+    // ★ 수정 3: Charm 계산 시 safeT 사용
+    // 기존: -nd1 * (r/(sigma*sqrtT) - d2/(2*T))  → T→0 시 d2/(2T) 폭발
+    // 수정: safeT로 클램핑된 값 사용 → 안정적인 수치
+    const charm = -nd1 * (r/(sigma*safeSqrtT) - d2/(2*safeT)) * netOI * 100;
     totalCharm += isFinite(charm) ? charm : 0;
   });
 
-  // M(백만) 단위 변환
   return { totalVanna: totalVanna/1e6, totalCharm: totalCharm/1e6 };
 }
 
 // ── 프리마켓 반전 분석 ──
-// Vanna 양수 → IV 하락 시 딜러 매수 헷지 → 프리 상승 후 IV 수축 → 개장 후 하락 반전 압력
-// Vanna 음수 → IV 하락 시 딜러 매도 헷지 → 프리 하락 후 IV 수축 → 개장 후 상승 반전 압력
 function analyzePremarketReversal(d, vc, marketState, preMarketPct) {
   const { strikes, spotPrice, pcr, flipZone } = d;
 
-  // 근처 ±8% 스트라이크 Put/Call Skew
   const near = strikes.filter(s => Math.abs(s.strike - spotPrice)/spotPrice < 0.08);
   const nearPutOI  = near.reduce((a,s)=>a+s.putOI, 0);
   const nearCallOI = near.reduce((a,s)=>a+s.callOI, 0);
   const putSkew = nearPutOI / Math.max(nearCallOI, 1);
 
-  // 프리마켓 방향 추정 (preMarketPct: 양수=상승, 음수=하락)
   const preDir = preMarketPct == null ? null : (preMarketPct > 0 ? 'up' : 'down');
   const preAbs = Math.abs(preMarketPct || 0);
 
-  // 반전 신호 강도 계산
   let score = 0;
   if (Math.abs(vc.totalVanna) > 7)  score += 3;
   else if (Math.abs(vc.totalVanna) > 4) score += 2;
   else if (Math.abs(vc.totalVanna) > 2) score += 1;
   if (putSkew > 1.7 || putSkew < 0.6) score += 2;
   else if (putSkew > 1.4 || putSkew < 0.75) score += 1;
-  if (preAbs > 1.0) score += 1; // 프리마켓 이미 크게 움직인 경우
+  if (preAbs > 1.0) score += 1;
 
-  // 방향 판단: Vanna 양수 + 프리 상승 = 개장 후 하락 반전 위험
   let reversalDir = null;
   if (vc.totalVanna > 0 && preDir === 'up')   reversalDir = '하락';
   if (vc.totalVanna < 0 && preDir === 'down')  reversalDir = '상승';
 
-  // 메시지 생성
   let level = '', message = '', detail = '';
   const vannaSign = vc.totalVanna > 0 ? '양수' : '음수';
   const vannaDesc = vc.totalVanna > 0
@@ -1059,14 +1026,12 @@ function buildNarrative(d, liveCtx) {
   if (top1Dn) { const d1 = ((spotPrice-top1Dn.strike)/spotPrice*100).toFixed(1); main += `하락 방향 최대 부담: <b>$${top1Dn.strike}</b>(-${d1}%)에 풋 헷지 집중.`; }
   if (top1Up) { const d1 = ((top1Up.strike-spotPrice)/spotPrice*100).toFixed(1); main += ` 상승 방향: <b>$${top1Up.strike}</b>(+${d1}%)에 콜 헷지 부담.`; }
 
-  // ── 프리마켓 / 실시간 가격 반영 ──
   let progressNote = '';
   if (livePrice !== null) {
     const refPrice = (marketState === 'PRE' && prevClose) ? prevClose : spotPrice;
     const livePct  = (livePrice - refPrice) / refPrice * 100;
     const stateStr = marketState === 'PRE' ? '프리마켓' : marketState === 'POST' ? '애프터마켓' : '현재가';
 
-    // 어떤 시나리오가 진행 중인지 판단
     const alreadyDn = top1Dn && livePrice <= top1Dn.strike;
     const alreadyDn2 = dnStrikes[1] && livePrice <= dnStrikes[1].strike;
     const alreadyUp  = top1Up && livePrice >= top1Up.strike;
@@ -1103,7 +1068,6 @@ function render(d){
   const{strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes}=d;
   const regime=totalGEX>=0?'positive':'negative';
 
-  // Vanna / Charm 계산
   const vc = calculateVannaCharm(strikes, spotPrice, exp);
   const reversal = analyzePremarketReversal(d, vc, 'CLOSED', null);
 
@@ -1132,7 +1096,7 @@ function render(d){
     return `<div class="hedge-row" data-strike="${s.strike}"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">-${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar dn" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.putHedge/1e6).toFixed(1)}M</span></div>`;
   }).join('');
 
-  const narr=buildNarrative(d, {});  // 최초 로드 시 liveCtx 없음 — null 대신 {} 전달로 방어
+  const narr=buildNarrative(d, {});
   const chartData=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.08);
   const tableData=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.10);
 
@@ -1220,16 +1184,13 @@ function render(d){
     </table></div>
   </div>`;
 
-  // 알람
   const al=document.getElementById('alarm-list');
   (alarms.length?alarms:[{l:'green',m:'특이 리스크 없음'}]).forEach(a=>{
     const div=document.createElement('div'); div.className=`alarm ${a.l}`; div.textContent=a.m; al.appendChild(div);
   });
 
-  // 차트
   buildChart(chartData,spotPrice,flipZone,putWall,callWall);
 
-  // 테이블
   const tbody=document.getElementById('tbl-body');
   tableData.forEach(s=>{
     const isCur=Math.abs(s.strike-spotPrice)<0.5;
@@ -1254,13 +1215,12 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
   const baseW=wrap.clientWidth||window.innerWidth-56;
   inner.style.width=Math.max(baseW, baseW*zoomLevel)+'px';
 
-  // 호버 시 점 색상 변경 플러그인
   const hoverDotPlugin = {
     id:'hoverDot',
     afterDraw(chart){
       const idx=chart._hoveredIdx;
       if(idx===undefined||idx===null) return;
-      const ds=chart.data.datasets[2]; // GEX 라인
+      const ds=chart.data.datasets[2];
       const meta=chart.getDatasetMeta(2);
       if(!meta||!meta.data[idx]) return;
       const pt=meta.data[idx];
@@ -1268,7 +1228,7 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
       ctx.save();
       ctx.beginPath();
       ctx.arc(pt.x,pt.y,6,0,Math.PI*2);
-      ctx.fillStyle='#f85149'; // 빨간 점
+      ctx.fillStyle='#f85149';
       ctx.strokeStyle='#fff';
       ctx.lineWidth=1.5;
       ctx.fill();
@@ -1279,10 +1239,7 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
 
   chartInst=new Chart(document.getElementById('mainchart'),{
     data:{
-      labels:chartData.map(s=>{
-        // 5달러 단위만 표시
-        return s.strike%5===0?'$'+s.strike:'';
-      }),
+      labels:chartData.map(s=>{ return s.strike%5===0?'$'+s.strike:''; }),
       datasets:[
         {type:'bar', label:'Call OI', data:chartData.map(s=>s.callOI),  backgroundColor:'rgba(88,166,255,.4)',yAxisID:'y'},
         {type:'bar', label:'Put OI',  data:chartData.map(s=>-s.putOI),  backgroundColor:'rgba(248,81,73,.4)', yAxisID:'y'},
@@ -1296,9 +1253,7 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      onHover:(e,els)=>{
-        if(chartInst) chartInst._hoveredIdx=els.length?els[0].index:null;
-      },
+      onHover:(e,els)=>{ if(chartInst) chartInst._hoveredIdx=els.length?els[0].index:null; },
       plugins:{
         legend:{display:true,position:'top',align:'start',labels:{color:'#8b949e',font:{size:12},boxWidth:12,padding:16}},
         tooltip:{
