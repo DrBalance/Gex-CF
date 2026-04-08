@@ -433,54 +433,194 @@ function renderVCChart(tab) {
     return;
   }
 
+  // canvas 복원 (innerHTML로 지운 경우 대비)
+  if (!document.getElementById('vc-chart')) {
+    inner.innerHTML = '<canvas id="vc-chart"></canvas>';
+  }
+
   const baseW = wrap.clientWidth || 600;
   inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
 
   const labels = vcHistory.map(h => h.time);
-  const dataMap = {
-    vanna: { data: vcHistory.map(h=>h.vanna), color:'#bc8cff', label:'Vanna (M)' },
-    charm: { data: vcHistory.map(h=>h.charm), color:'#f0883e', label:'Charm (M)' },
-    gex:   { data: vcHistory.map(h=>h.gex),   color:'#3fb950', label:'Local GEX (M)' },
-    vix:   { data: vcHistory.map(h=>h.vix),    color:'#f85149', label:'VIX' },
-  };
-
-  const { data, color, label } = dataMap[tab] || dataMap.vanna;
-
   if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
 
-  vcChartInst = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label,
-        data,
-        borderColor: color,
-        backgroundColor: color + '15',
-        fill: true,
-        borderWidth: 2,
-        pointRadius: 2,
-        pointHoverRadius: 5,
-        tension: 0.3,
-        spanGaps: true,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-          titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+  // Y축 라벨: 1M, 2M 형식
+  const mFormatter = v => {
+    if (Math.abs(v) >= 1000) return (v/1000).toFixed(1) + 'B';
+    return v + 'M';
+  };
+
+  // ── Vanna 또는 Charm 탭: Greek + VIX 동시 표시 ──
+  if (tab === 'vanna' || tab === 'charm') {
+    const isVanna = tab === 'vanna';
+    const greekData = vcHistory.map(h => isVanna ? h.vanna : h.charm);
+    const greekColor = isVanna ? '#bc8cff' : '#f0883e';
+    const greekLabel = isVanna ? 'Vanna (M)' : 'Charm (M)';
+    const vixData = vcHistory.map(h => h.vix);
+
+    vcChartInst = new Chart(document.getElementById('vc-chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: greekLabel,
+            data: greekData,
+            borderColor: greekColor,
+            backgroundColor: greekColor + '20',
+            fill: true,
+            borderWidth: 2,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+            tension: 0.3,
+            spanGaps: true,
+            yAxisID: 'y',
+          },
+          {
+            label: 'VIX',
+            data: vixData,
+            borderColor: '#f85149',
+            backgroundColor: 'transparent',
+            fill: false,
+            borderWidth: 1.5,
+            borderDash: [4, 3],
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            tension: 0.3,
+            spanGaps: true,
+            yAxisID: 'yVix',
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: {
+            display: true, position: 'top', align: 'start',
+            labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12, padding: 14 }
+          },
+          tooltip: {
+            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
+          y: {
+            position: 'left',
+            ticks: { color: greekColor, font:{ size:10 }, callback: mFormatter },
+            grid: { color:'rgba(48,54,61,.4)' },
+            title: { display: false }
+          },
+          yVix: {
+            position: 'right',
+            ticks: { color: '#f85149', font:{ size:10 }, callback: v => v.toFixed(1) },
+            grid: { drawOnChartArea: false },
+          }
+        }
+      }
+    });
+
+  // ── GEX 탭: 배경색으로 Positive/Negative 구분 ──
+  } else if (tab === 'gex') {
+    const gexData = vcHistory.map(h => h.gex);
+
+    // GEX 배경 플러그인
+    const gexBgPlugin = {
+      id: 'gexBackground',
+      beforeDraw(chart) {
+        const { ctx, chartArea: { top, bottom, left, right }, scales: { y } } = chart;
+        if (!y) return;
+        const zeroY = y.getPixelForValue(0);
+        ctx.save();
+        // Positive 구간 (0 이상) → 옅은 녹색
+        ctx.fillStyle = 'rgba(63,185,80,0.06)';
+        ctx.fillRect(left, top, right - left, Math.max(0, zeroY - top));
+        // Negative 구간 (0 미만) → 옅은 빨간색
+        ctx.fillStyle = 'rgba(248,81,73,0.06)';
+        ctx.fillRect(left, Math.min(zeroY, bottom), right - left, bottom - Math.min(zeroY, bottom));
+        ctx.restore();
+      }
+    };
+
+    vcChartInst = new Chart(document.getElementById('vc-chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Local GEX (M)',
+          data: gexData,
+          borderColor: '#3fb950',
+          backgroundColor: 'transparent',
+          fill: false,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          tension: 0.3,
+          spanGaps: true,
+          yAxisID: 'y',
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
+          y: {
+            position: 'left',
+            ticks: { color: '#3fb950', font:{ size:10 }, callback: mFormatter },
+            grid: { color:'rgba(48,54,61,.4)' },
+          }
         }
       },
-      scales: {
-        x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
-        y: { ticks: { color:'#6e7681', font:{ size:10 } }, grid:{ color:'rgba(48,54,61,.5)' } },
+      plugins: [gexBgPlugin]
+    });
+
+  // ── VIX 탭 ──
+  } else {
+    const vixData = vcHistory.map(h => h.vix);
+    vcChartInst = new Chart(document.getElementById('vc-chart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'VIX',
+          data: vixData,
+          borderColor: '#f85149',
+          backgroundColor: '#f8514915',
+          fill: true,
+          borderWidth: 2,
+          pointRadius: 2,
+          pointHoverRadius: 5,
+          tension: 0.3,
+          spanGaps: true,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
+          y: { ticks: { color:'#f85149', font:{ size:10 } }, grid:{ color:'rgba(48,54,61,.4)' } },
+        }
       }
-    }
-  });
+    });
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1074,8 +1214,37 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
       },
       scales:{
         x:{ticks:{color:'#6e7681',font:{size:11},autoSkip:false,maxRotation:45},grid:{color:'rgba(48,54,61,.7)'}},
-        y:{position:'left',ticks:{color:'#6e7681',font:{size:11},callback:v=>v>=1000?Math.round(v/1000)+'K':v},grid:{color:'rgba(48,54,61,.7)'}},
-        y2:{position:'right',ticks:{color:'#f0883e',font:{size:11},callback:v=>v+'M'},grid:{drawOnChartArea:false}},
+        y:{
+          position:'left',
+          ticks:{
+            color:'#6e7681',font:{size:11},
+            callback: v => {
+              const abs = Math.abs(v);
+              const sign = v < 0 ? '-' : '';
+              if (abs >= 1000000) return sign + Math.round(abs/1000000) + 'M';
+              if (abs >= 1000) return sign + Math.round(abs/1000) + 'K';
+              return v;
+            }
+          },
+          grid:{color:'rgba(48,54,61,.7)'}
+        },
+        y2:{
+          position:'right',
+          ticks:{
+            color:'#f0883e',font:{size:11},
+            callback: v => {
+              const abs = Math.abs(v);
+              const sign = v < 0 ? '-' : '';
+              if (abs >= 1000) return sign + Math.round(abs/1000) + 'K';
+              return v + 'M';
+            }
+          },
+          grid:{
+            drawOnChartArea:true,
+            color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'transparent',
+            lineWidth: ctx => ctx.tick.value === 0 ? 1 : 0,
+          }
+        },
       }
     }
   });
