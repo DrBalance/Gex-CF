@@ -415,15 +415,7 @@ function renderForceSidebar(force) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // VannaCharm 차트 렌더 (CBOE 기반 누적)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function renderVCChart(tab) {
-  vcActiveTab = tab;
-  const canvas = document.getElementById('vc-chart');
-  if (!canvas) return;
-
-  document.querySelectorAll('.vc-tab').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById(`vc-tab-${tab}`);
-  if (btn) btn.classList.add('active');
-
+function renderVCChart() {
   const wrap = document.getElementById('vc-scroll-wrap');
   const inner = document.getElementById('vc-chart-inner');
   if (!wrap || !inner) return;
@@ -433,7 +425,7 @@ function renderVCChart(tab) {
     return;
   }
 
-  // canvas 복원 (innerHTML로 지운 경우 대비)
+  // canvas 복원
   if (!document.getElementById('vc-chart')) {
     inner.innerHTML = '<canvas id="vc-chart"></canvas>';
   }
@@ -442,185 +434,135 @@ function renderVCChart(tab) {
   inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
 
   const labels = vcHistory.map(h => h.time);
+  const vannaData = vcHistory.map(h => h.vanna);
+  const charmData = vcHistory.map(h => h.charm);
+  const vixData   = vcHistory.map(h => h.vix);
+  const gexData   = vcHistory.map(h => h.gex);
+
   if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
 
-  // Y축 라벨: 1M, 2M 형식
+  // Y축 라벨: 1M, -1M 형식
   const mFormatter = v => {
-    if (Math.abs(v) >= 1000) return (v/1000).toFixed(1) + 'B';
-    return v + 'M';
+    const abs = Math.abs(v);
+    const sign = v < 0 ? '-' : '';
+    if (abs >= 1000) return sign + (abs/1000).toFixed(1) + 'B';
+    return sign + abs + 'M';
   };
 
-  // ── Vanna 또는 Charm 탭: Greek + VIX 동시 표시 ──
-  if (tab === 'vanna' || tab === 'charm') {
-    const isVanna = tab === 'vanna';
-    const greekData = vcHistory.map(h => isVanna ? h.vanna : h.charm);
-    const greekColor = isVanna ? '#bc8cff' : '#58a6ff';
-    const greekLabel = isVanna ? 'Vanna (M)' : 'Charm (M)';
-    const vixData = vcHistory.map(h => h.vix);
+  // GEX 배경 플러그인 (Positive=녹색, Negative=빨간색)
+  const gexBgPlugin = {
+    id: 'gexBackground',
+    beforeDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      if (!chartArea || !scales.y) return;
+      const { top, bottom, left, right } = chartArea;
+      const zeroY = scales.y.getPixelForValue(0);
+      ctx.save();
+      ctx.fillStyle = 'rgba(63,185,80,0.07)';
+      ctx.fillRect(left, top, right - left, Math.max(0, zeroY - top));
+      ctx.fillStyle = 'rgba(248,81,73,0.07)';
+      ctx.fillRect(left, Math.min(zeroY, bottom), right - left, bottom - Math.min(zeroY, bottom));
+      ctx.restore();
+    }
+  };
 
-    vcChartInst = new Chart(document.getElementById('vc-chart'), {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: greekLabel,
-            data: greekData,
-            borderColor: greekColor,
-            backgroundColor: greekColor + '20',
-            fill: true,
-            borderWidth: 2,
-            pointRadius: 2,
-            pointHoverRadius: 5,
-            tension: 0.3,
-            spanGaps: true,
-            yAxisID: 'y',
-          },
-          {
-            label: 'VIX',
-            data: vixData,
-            borderColor: '#d29922',
-            backgroundColor: 'transparent',
-            fill: false,
-            borderWidth: 1.5,
-            borderDash: [4, 3],
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            tension: 0.3,
-            spanGaps: true,
-            yAxisID: 'yVix',
-          }
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: {
-            display: true, position: 'top', align: 'start',
-            labels: { color: '#8b949e', font: { size: 11 }, boxWidth: 12, padding: 14 }
-          },
-          tooltip: {
-            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
-          }
-        },
-        scales: {
-          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
-          y: {
-            position: 'left',
-            ticks: { color: greekColor, font:{ size:10 }, callback: mFormatter },
-            grid: { color:'rgba(48,54,61,.4)' },
-            title: { display: false }
-          },
-          yVix: {
-            position: 'right',
-            ticks: { color: '#d29922', font:{ size:10 }, callback: v => v.toFixed(1) },
-            grid: { drawOnChartArea: false },
-          }
-        }
-      }
-    });
-
-  // ── GEX 탭: 배경색으로 Positive/Negative 구분 ──
-  } else if (tab === 'gex') {
-    const gexData = vcHistory.map(h => h.gex);
-
-    // GEX 배경 플러그인
-    const gexBgPlugin = {
-      id: 'gexBackground',
-      beforeDraw(chart) {
-        const { ctx, chartArea: { top, bottom, left, right }, scales: { y } } = chart;
-        if (!y) return;
-        const zeroY = y.getPixelForValue(0);
-        ctx.save();
-        // Positive 구간 (0 이상) → 옅은 녹색
-        ctx.fillStyle = 'rgba(63,185,80,0.06)';
-        ctx.fillRect(left, top, right - left, Math.max(0, zeroY - top));
-        // Negative 구간 (0 미만) → 옅은 빨간색
-        ctx.fillStyle = 'rgba(248,81,73,0.06)';
-        ctx.fillRect(left, Math.min(zeroY, bottom), right - left, bottom - Math.min(zeroY, bottom));
-        ctx.restore();
-      }
-    };
-
-    vcChartInst = new Chart(document.getElementById('vc-chart'), {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Local GEX (M)',
-          data: gexData,
-          borderColor: '#3fb950',
+  vcChartInst = new Chart(document.getElementById('vc-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Vanna (M)',
+          data: vannaData,
+          borderColor: '#bc8cff',
           backgroundColor: 'transparent',
           fill: false,
           borderWidth: 2,
-          pointRadius: 2,
-          pointHoverRadius: 5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
           tension: 0.3,
           spanGaps: true,
           yAxisID: 'y',
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
-          }
         },
-        scales: {
-          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
-          y: {
-            position: 'left',
-            ticks: { color: '#3fb950', font:{ size:10 }, callback: mFormatter },
-            grid: { color:'rgba(48,54,61,.4)' },
-          }
-        }
-      },
-      plugins: [gexBgPlugin]
-    });
-
-  // ── VIX 탭 ──
-  } else {
-    const vixData = vcHistory.map(h => h.vix);
-    vcChartInst = new Chart(document.getElementById('vc-chart'), {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          label: 'VIX',
-          data: vixData,
-          borderColor: '#f85149',
-          backgroundColor: '#f8514915',
-          fill: true,
+        {
+          label: 'Charm (M)',
+          data: charmData,
+          borderColor: '#58a6ff',
+          backgroundColor: 'transparent',
+          fill: false,
           borderWidth: 2,
-          pointRadius: 2,
-          pointHoverRadius: 5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
           tension: 0.3,
           spanGaps: true,
-        }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-            titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
-          }
+          yAxisID: 'y',
         },
-        scales: {
-          x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
-          y: { ticks: { color:'#f85149', font:{ size:10 } }, grid:{ color:'rgba(48,54,61,.4)' } },
+        {
+          label: 'VIX',
+          data: vixData,
+          borderColor: '#d29922',
+          backgroundColor: 'transparent',
+          fill: false,
+          borderWidth: 2,
+          borderDash: [],
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.3,
+          spanGaps: true,
+          yAxisID: 'yVix',
+        },
+        {
+          label: 'GEX (M)',
+          data: gexData,
+          borderColor: 'rgba(63,185,80,0.4)',
+          backgroundColor: 'transparent',
+          fill: false,
+          borderWidth: 1,
+          borderDash: [3, 3],
+          pointRadius: 0,
+          tension: 0.3,
+          spanGaps: true,
+          yAxisID: 'y',
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+          titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
+          callbacks: {
+            label: item => {
+              const ds = item.dataset.label;
+              const v = item.parsed.y;
+              if (ds === 'VIX') return `VIX: ${v?.toFixed(2)}`;
+              return `${ds}: ${v?.toFixed(1)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 },
+          grid: { color:'rgba(48,54,61,.5)' }
+        },
+        y: {
+          position: 'left',
+          ticks: { color: '#8b949e', font:{ size:10 }, callback: mFormatter },
+          grid: { color:'rgba(48,54,61,.4)' },
+        },
+        yVix: {
+          position: 'right',
+          ticks: { color: '#d29922', font:{ size:10 }, callback: v => v.toFixed(1) },
+          grid: { drawOnChartArea: false },
         }
       }
-    });
-  }
+    },
+    plugins: [gexBgPlugin]
+  });
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -875,7 +817,7 @@ async function autoRefresh() {
     renderForceSidebar(force);
 
     // 차트 업데이트
-    renderVCChart(vcActiveTab);
+    renderVCChart();
 
     // 실시간 상황판단 업데이트
     const ctx = { marketState, priceLabel, preMarketPct, prevClose, vix: vixVal };
@@ -1093,15 +1035,9 @@ function render(d){
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
           <span style="font-size:12px;color:#bc8cff;font-weight:600">● Vanna</span>
           <span style="font-size:12px;color:#58a6ff;font-weight:600">● Charm</span>
-          <span style="font-size:12px;color:#d29922;font-weight:600;border-bottom:2px dashed #d29922;padding-bottom:1px">- - VIX</span>
-          <span style="font-size:12px;color:#3fb950;font-weight:600">● GEX</span>
+          <span style="font-size:12px;color:#d29922;font-weight:600">— VIX</span>
+          <span style="font-size:12px;color:#3fb950;font-weight:600">▪ GEX 배경</span>
         </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-        <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')" style="font-size:11px;padding:3px 8px">Vanna+VIX</button>
-        <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')" style="font-size:11px;padding:3px 8px">Charm+VIX</button>
-        <button class="vc-tab" id="vc-tab-gex" onclick="renderVCChart('gex')" style="font-size:11px;padding:3px 8px">GEX</button>
-        <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')" style="font-size:11px;padding:3px 8px">VIX</button>
       </div>
       <div class="vc-zoom-row">
         <span class="vc-zoom-label">확대</span>
@@ -1176,13 +1112,13 @@ function render(d){
   });
 
   // VannaCharm 차트 초기 렌더
-  renderVCChart('vanna');
+  renderVCChart();
 }
 
 function updateVCZoom(val) {
   vcZoom = parseFloat(val);
   document.getElementById('vc-zoom-val').textContent = val + '×';
-  renderVCChart(vcActiveTab);
+  renderVCChart();
 }
 
 function buildChart(chartData, sp, flipZone, putWall, callWall) {
