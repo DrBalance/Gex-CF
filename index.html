@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v5</title>
+<title>딜러 리스크 대시보드 v6</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -17,7 +17,6 @@
 }
 html,body{width:100%;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);font-size:15px}
 
-/* ── 헤더 ── */
 .header{display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-bottom:1px solid var(--border);background:var(--bg2);position:sticky;top:0;z-index:100}
 .header-left{display:flex;align-items:center;gap:14px}
 .logo{font-size:18px;font-weight:700;letter-spacing:-.3px}
@@ -28,7 +27,6 @@ html,body{width:100%;min-height:100vh;background:var(--bg);color:var(--text);fon
 .status-text{font-size:13px;color:var(--text2)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-/* ── 컨트롤 바 ── */
 .ctrl-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 28px;border-bottom:1px solid var(--border);background:var(--bg2)}
 select,button{font-family:var(--font);font-size:14px}
 .sym-select,.exp-select{background:var(--bg3);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 12px;cursor:pointer}
@@ -43,19 +41,14 @@ select,button{font-family:var(--font);font-size:14px}
 .ctrl-spacer{flex:1}
 .data-time{font-size:12px;color:var(--text3);font-family:var(--mono)}
 
-/* ── 메인 ── */
 .main{width:100%;padding:20px 28px;display:flex;flex-direction:column;gap:20px}
-
-/* ── 카드 ── */
 .card{width:100%;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:22px 28px}
 .card-title{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.09em;margin-bottom:16px}
 
-/* ── GEX 레짐 ── */
 .regime-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:7px;margin-bottom:16px;font-size:15px;font-weight:600}
 .regime-bar.positive{background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.25);color:#7ee787}
 .regime-bar.negative{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.25);color:#ffa198}
 
-/* ── 알람 ── */
 .alarm{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:7px;margin-bottom:7px;font-size:14px;font-weight:500}
 .alarm::before{content:'';width:7px;height:7px;border-radius:50%;flex-shrink:0}
 .alarm.red{background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);color:#ffa198}
@@ -64,24 +57,20 @@ select,button{font-family:var(--font);font-size:14px}
 .alarm.yellow::before{background:var(--yellow)}
 .alarm.green{background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);color:#7ee787}
 .alarm.green::before{background:var(--green)}
-.alarm.blue{background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.3);color:#9ecbff}
-.alarm.blue::before{background:var(--blue)}
-.alarm.purple{background:rgba(188,140,255,.1);border:1px solid rgba(188,140,255,.3);color:#d2b4ff}
-.alarm.purple::before{background:var(--purple)}
 
-/* ── 메트릭 그리드 (8+2=10칸) ── */
 .metrics{display:grid;grid-template-columns:repeat(10,1fr);gap:10px;margin-top:16px}
 @media(max-width:1400px){.metrics{grid-template-columns:repeat(5,1fr)}}
-@media(max-width:700px) {.metrics{grid-template-columns:repeat(2,1fr)}}
-.metric{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 12px;text-align:center}
+@media(max-width:700px){.metrics{grid-template-columns:repeat(2,1fr)}}
+.metric{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px 12px;text-align:center;transition:border-color .3s}
 .metric .val{font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;font-family:var(--mono)}
 .metric .lbl{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em}
 .metric.red .val{color:var(--red)}.metric.green .val{color:var(--green)}
 .metric.yellow .val{color:var(--yellow)}.metric.blue .val{color:var(--blue)}
 .metric.orange .val{color:var(--orange)}.metric.purple .val{color:var(--purple)}
 .metric.warn .val{color:var(--yellow)}.metric.danger .val{color:var(--red)}
+.metric.pre-market{border-color:rgba(188,140,255,.5)}
+.metric.post-market{border-color:rgba(240,136,62,.5)}
 
-/* ── 헷지 부담 ── */
 .hedge-section{margin-top:20px}
 .hedge-title{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
 .hedge-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -89,8 +78,6 @@ select,button{font-family:var(--font);font-size:14px}
 .hedge-col-label{font-size:12px;color:var(--text3);margin-bottom:8px;font-weight:600}
 .hedge-row{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:6px;border:1px solid var(--border);background:var(--bg3);margin-bottom:6px;transition:background .15s}
 .hedge-row:hover{background:#252b33}
-.hedge-row.flashing{animation:hflash .7s ease}
-@keyframes hflash{0%,100%{background:var(--bg3)}50%{background:rgba(240,136,62,.25)}}
 .hedge-rank{font-size:11px;font-weight:700;width:18px;text-align:center;flex-shrink:0}
 .hedge-rank.r1{color:var(--red)}.hedge-rank.r2{color:var(--orange)}.hedge-rank.r3{color:var(--yellow)}.hedge-rank.r4{color:var(--text2)}
 .hedge-strike{font-size:15px;font-weight:700;font-family:var(--mono);color:var(--text);flex:1}
@@ -100,56 +87,65 @@ select,button{font-family:var(--font);font-size:14px}
 .hedge-bar.up{background:var(--green)}.hedge-bar.dn{background:var(--red)}
 .hedge-pressure{font-size:11px;color:var(--text3);font-family:var(--mono);width:46px;text-align:right;flex-shrink:0}
 
-/* ── 내러티브 ── */
-.narrative{margin-top:18px;padding:16px 18px;border-radius:8px;border:1px solid rgba(188,140,255,.25);background:rgba(188,140,255,.05)}
-.narrative-title{font-size:12px;font-weight:600;color:var(--purple);margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em}
-.narrative-body{font-size:13px;color:var(--text2);line-height:1.8}
-.narrative-body b{color:var(--text);font-weight:600}
-.scenario{margin-top:10px;padding:10px 14px;border-radius:6px;background:var(--bg3);border-left:3px solid var(--border);font-size:13px;color:var(--text2);line-height:1.7}
-.scenario.bull{border-left-color:var(--green)}.scenario.bear{border-left-color:var(--red)}
-.scenario b{color:var(--text)}
+/* ── 통합 상황판단 패널 ── */
+.judgment-panel{margin-top:16px;border-radius:8px;border:1px solid rgba(88,166,255,.2);background:rgba(88,166,255,.04);overflow:hidden}
+.judgment-fixed{padding:16px 18px;border-bottom:1px solid rgba(48,54,61,.8)}
+.judgment-fixed-title{font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.judgment-fixed-title::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--blue)}
+.judgment-item{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;font-size:13px;line-height:1.6;color:var(--text2)}
+.judgment-item:last-child{margin-bottom:0}
+.judgment-item .ji-icon{flex-shrink:0;font-size:14px;margin-top:1px}
+.judgment-item .ji-text b{color:var(--text)}
+.judgment-item.ji-green .ji-icon{color:var(--green)}
+.judgment-item.ji-red .ji-icon{color:var(--red)}
+.judgment-item.ji-yellow .ji-icon{color:var(--yellow)}
+.judgment-item.ji-blue .ji-icon{color:var(--blue)}
+.judgment-item.ji-orange .ji-icon{color:var(--orange)}
 
-/* ── 실시간 상황 판단 패널 ── */
-.live-judgment{margin-top:14px;padding:14px 16px;border-radius:8px;border:1px solid rgba(88,166,255,.2);background:rgba(88,166,255,.05);display:none}
-.live-judgment.visible{display:block}
-.lj-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.lj-dot{width:7px;height:7px;border-radius:50%;background:var(--blue);animation:pulse 1.5s infinite}
-.lj-title{font-size:12px;font-weight:600;color:var(--blue);text-transform:uppercase;letter-spacing:.06em}
-.lj-trend{font-size:15px;font-weight:700;padding:10px 14px;border-radius:6px;margin-bottom:10px;display:flex;align-items:center;gap:10px}
-.lj-trend.bearish{background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.3);color:#ffa198}
-.lj-trend.bullish{background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#7ee787}
-.lj-trend.neutral{background:rgba(139,148,158,.08);border:1px solid var(--border);color:var(--text2)}
-.lj-trend.reversal-up{background:rgba(188,140,255,.12);border:1px solid rgba(188,140,255,.3);color:#d2b4ff}
-.lj-trend.reversal-dn{background:rgba(240,136,62,.12);border:1px solid rgba(240,136,62,.3);color:#ffb380}
-.lj-events{font-size:12px;color:var(--text3)}
-.lj-event{padding:5px 0;border-bottom:1px solid rgba(48,54,61,.6);display:flex;gap:8px;line-height:1.5}
-.lj-event:last-child{border-bottom:none}
-.lj-event .ev-t{color:var(--text3);font-family:var(--mono);flex-shrink:0;min-width:60px}
-.lj-event .ev-msg{color:var(--text2)}
-.lj-event .up{color:var(--green)}.lj-event .dn{color:var(--red)}.lj-event .warn{color:var(--yellow)}
+.judgment-live{padding:14px 18px;max-height:260px;overflow-y:auto}
+.judgment-live-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.judgment-live-title .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+.live-event{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:12px;line-height:1.5}
+.live-event:last-child{border-bottom:none}
+.live-event .le-time{color:var(--text3);font-family:var(--mono);flex-shrink:0;min-width:52px}
+.live-event .le-msg{color:var(--text2)}
+.live-event.le-warn .le-msg{color:#e3b341}
+.live-event.le-danger .le-msg{color:#ffa198}
+.live-event.le-good .le-msg{color:#7ee787}
+.live-event.le-info .le-msg{color:#9ecbff}
 
-/* ── 언와인드 감지 패널 ── */
-.unwind-panel{margin-top:14px;padding:14px 16px;border-radius:8px;border:1px solid rgba(210,153,34,.25);background:rgba(210,153,34,.05);display:none}
-.unwind-panel.visible{display:block}
-.unwind-title{font-size:12px;font-weight:600;color:var(--yellow);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
-.unwind-status{font-size:14px;color:var(--text2);line-height:1.7}
-.unwind-status b{color:var(--text)}
-.unwind-status .signal{color:var(--yellow);font-weight:700}
-.unwind-status .strong{color:var(--orange);font-weight:700}
+/* ── Greek 힘의 균형 패널 ── */
+.vc-panel-wrap{display:flex;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2)}
+.force-sidebar{width:220px;flex-shrink:0;padding:18px 16px;background:var(--bg3);border-right:1px solid var(--border)}
+.force-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
+.force-item{margin-bottom:16px}
+.force-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.force-name{font-size:12px;font-weight:600;color:var(--text2)}
+.force-pct{font-size:12px;font-weight:700;font-family:var(--mono)}
+.force-bar-bg{height:8px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative}
+.force-bar-fill{height:100%;border-radius:4px;transition:width .5s ease,background .5s ease}
+.force-status{font-size:11px;color:var(--text3);margin-top:4px}
+.force-divider{height:1px;background:var(--border);margin:14px 0}
+.force-summary{font-size:12px;line-height:1.6;color:var(--text2)}
+.force-summary b{color:var(--text)}
 
-/* ── 프리마켓 반전 패널 ── */
-.premarket-panel{margin-top:14px;padding:16px 18px;border-radius:8px;border:1px solid rgba(188,140,255,.3);background:rgba(188,140,255,.06)}
-.premarket-panel.warning{border-color:rgba(248,81,73,.5);background:rgba(248,81,73,.07)}
-.premarket-panel.caution{border-color:rgba(210,153,34,.4);background:rgba(210,153,34,.07)}
-.pm-header{display:flex;align-items:center;gap:8px;margin-bottom:10px}
-.pm-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--purple)}
-.premarket-panel.warning .pm-title{color:#ffa198}
-.premarket-panel.caution .pm-title{color:#e3b341}
-.pm-message{font-size:15px;font-weight:700;color:var(--text);margin-bottom:6px}
-.pm-detail{font-size:13px;color:var(--text2);line-height:1.7}
-.pm-metrics{display:flex;gap:20px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap}
-.pm-stat{font-size:12px;color:var(--text3)}
-.pm-stat b{color:var(--text);font-family:var(--mono)}
+.vc-chart-area{flex:1;padding:18px 20px;min-width:0}
+.vc-chart-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.vc-chart-title{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.08em}
+.vc-tabs{display:flex;gap:6px}
+.vc-tab{font-size:12px;padding:4px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font)}
+.vc-tab.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
+.vc-zoom-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.vc-zoom-label{font-size:11px;color:var(--text3)}
+.vc-zoom-slider{-webkit-appearance:none;width:120px;height:4px;border-radius:2px;background:var(--bg3);outline:none;cursor:pointer}
+.vc-zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--blue);cursor:pointer}
+.vc-zoom-val{font-size:11px;color:var(--blue);font-family:var(--mono);min-width:24px}
+.vc-scroll-wrap{overflow-x:auto;overflow-y:hidden;border-radius:6px;border:1px solid var(--border)}
+.vc-scroll-wrap::-webkit-scrollbar{height:4px}
+.vc-scroll-wrap::-webkit-scrollbar-track{background:var(--bg3)}
+.vc-scroll-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.vc-chart-inner{position:relative;height:220px;min-width:100%}
+.vc-empty{text-align:center;padding:60px 0;color:var(--text3);font-size:13px}
 
 /* ── 차트 ── */
 .chart-controls{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
@@ -164,7 +160,6 @@ select,button{font-family:var(--font);font-size:14px}
 .chart-scroll-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .chart-inner{position:relative;height:460px;min-width:100%}
 
-/* ── 테이블 ── */
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
 th{font-size:13px;color:var(--text3);font-weight:500;text-align:right;padding:10px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
@@ -172,33 +167,17 @@ th:first-child{text-align:left}
 td{padding:8px 14px;text-align:right;font-size:13px;border-bottom:1px solid rgba(48,54,61,.5);color:var(--text2);font-family:var(--mono)}
 td:first-child{text-align:left;font-family:var(--font);font-weight:600;color:var(--text)}
 tr:hover td{background:rgba(255,255,255,.02)}
-tr.cur td{background:rgba(88,166,255,.07)}.tr.cur td:first-child{color:var(--blue)}
-tr.flip td{background:rgba(240,136,62,.06)}.tr.flip td:first-child{color:var(--orange)}
+tr.cur td{background:rgba(88,166,255,.07)}
+tr.flip td{background:rgba(240,136,62,.06)}
 .tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:3px;margin-left:5px;font-weight:700}
-.tag-cur{background:rgba(88,166,255,.2);color:var(--blue)}.tag-flip{background:rgba(240,136,62,.2);color:var(--orange)}
-.tag-pw{background:rgba(248,81,73,.2);color:var(--red)}.tag-cw{background:rgba(63,185,80,.2);color:var(--green)}
+.tag-cur{background:rgba(88,166,255,.2);color:var(--blue)}
+.tag-flip{background:rgba(240,136,62,.2);color:var(--orange)}
+.tag-pw{background:rgba(248,81,73,.2);color:var(--red)}
+.tag-cw{background:rgba(63,185,80,.2);color:var(--green)}
 
-/* ── VannaCharm 실시간 차트 패널 ── */
-.vc-panel{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:22px 28px;margin-bottom:0}
-.vc-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px}
-.vc-title{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.09em}
-.vc-session{font-size:12px;font-weight:700;padding:3px 10px;border-radius:4px;font-family:var(--mono)}
-.vc-session.PRE{background:rgba(188,140,255,.15);color:var(--purple)}
-.vc-session.REGULAR{background:rgba(63,185,80,.15);color:var(--green)}
-.vc-session.POST{background:rgba(240,136,62,.15);color:var(--orange)}
-.vc-session.CLOSED{background:var(--bg3);color:var(--text3)}
-.vc-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
-.vc-tab{font-size:12px;padding:5px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text3);cursor:pointer;font-family:var(--font)}
-.vc-tab.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
-.vc-chart-wrap{position:relative;height:220px}
-.vc-advice{margin-top:12px;padding:10px 14px;border-radius:7px;font-size:13px;line-height:1.7;color:var(--text2);background:var(--bg3);border-left:3px solid var(--border)}
-.vc-advice.bull{border-left-color:var(--green)}.vc-advice.bear{border-left-color:var(--red)}.vc-advice.warn{border-left-color:var(--yellow)}
-.vc-advice b{color:var(--text)}
-.vc-loading{text-align:center;padding:60px 0;color:var(--text3);font-size:13px}
-
-/* ── 빈/로딩 ── */
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:90px 24px;gap:16px;color:var(--text3)}
-.empty-icon{font-size:44px;opacity:.35}.empty-title{font-size:17px;font-weight:500;color:var(--text2)}
+.empty-icon{font-size:44px;opacity:.35}
+.empty-title{font-size:17px;font-weight:500;color:var(--text2)}
 .empty-sub{font-size:14px;text-align:center;line-height:1.7}
 .spinner{width:38px;height:38px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -238,37 +217,32 @@ tr.flip td{background:rgba(240,136,62,.06)}.tr.flip td:first-child{color:var(--o
     <div class="empty-state">
       <div class="empty-icon">◈</div>
       <div class="empty-title">심볼 선택 후 데이터 로드를 눌러주세요</div>
-      <div class="empty-sub">CBOE 15분 지연 · CSV 불필요 · 버튼 한 번으로 옵션 체인 자동 로드<br>자동갱신: 현재가+VIX만 재조회 (~1KB/분) — 체인 재로드 없음</div>
+      <div class="empty-sub">CBOE 15분 지연 · CSV 불필요 · 버튼 한 번으로 옵션 체인 자동 로드</div>
     </div>
   </div>
 </div>
 
 <script>
 const PROXY = 'https://api.drbalance.xyz';
-let chartInst = null;
+let chartInst = null, vcChartInst = null;
 let allOptions = [], spotPrice = 0, vixVal = null, vvixVal = null;
 let currentStrikes = [], currentD = null;
 let autoInterval = null;
 let liveEvents = [];
 let priceHistory = [];
-let prevSpot = null;
-let zoomLevel = 1;
-let activeTooltipIdx = null;
-
-// VannaCharm 관련
-let vcData = [];
-let vcChartInst = null;
+let vcHistory = []; // {time, vanna, charm, gex, vix, spot}
 let vcActiveTab = 'vanna';
-let vcInterval = null;
+let vcZoom = 1;
+let zoomLevel = 1;
+let prevSpot = null;
 
 window.addEventListener('DOMContentLoaded', () => { loadExpirations(); loadVIX(); });
 document.getElementById('sym-select').addEventListener('change', () => { allOptions=[]; loadExpirations(); });
 
-// ── VIX 초기 로드 ──
 async function loadVIX() {
   try {
     const json = await fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json());
-    vixVal  = json.VIX?.price;
+    vixVal = json.VIX?.price;
     vvixVal = json.VVIX?.price;
     updateVIXMetrics();
   } catch(e){}
@@ -277,160 +251,200 @@ async function loadVIX() {
 function updateVIXMetrics() {
   const vm = document.getElementById('metric-vix');
   const vvm = document.getElementById('metric-vvix');
-  if (vm && vixVal) {
+  if (vm && vixVal != null) {
     vm.querySelector('.val').textContent = vixVal.toFixed(2);
     vm.className = 'metric' + (vixVal>30?' danger':vixVal>20?' warn':'');
   }
-  if (vvm && vvixVal) {
+  if (vvm && vvixVal != null) {
     vvm.querySelector('.val').textContent = vvixVal.toFixed(2);
     vvm.className = 'metric' + (vvixVal>130?' danger':vvixVal>110?' warn':'');
   }
 }
 
-// ── VannaCharm 데이터 로드 ──
-async function loadVannaCharm() {
-  const sym = document.getElementById('sym-select').value.replace('_','');
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  try {
-    const res = await fetch(`${PROXY}/api/vannacharm?symbol=${sym}&date=${today}`);
-    const json = await res.json();
-    if (!json.data || !json.data.length) return null;
-
-    const existing = new Set(vcData.map(d => d.session_minute));
-    let added = 0;
-    for (const row of json.data) {
-      if (!existing.has(row.session_minute)) {
-        vcData.push(row);
-        added++;
-      }
-    }
-    vcData.sort((a,b) => a.session_minute - b.session_minute);
-
-    return json._meta;
-  } catch(e) { console.error('VannaCharm load error:', e); return null; }
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Vanna / Charm 계산 (safeT 클램핑으로 수치 안정화)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function calculateVannaCharm(strikes, spotPrice, expDate) {
+  const msToExp = new Date(expDate) - new Date();
+  const T = Math.max(msToExp / (1000*60*60*24*365), 1/365);
+  const safeT = Math.max(T, 0.5/365);
+  const r = 0.045;
+  let totalVanna = 0, totalCharm = 0;
+  strikes.forEach(s => {
+    const K = s.strike;
+    const sigma = s.iv > 0 ? s.iv : 0.20;
+    const sqrtT = Math.sqrt(T);
+    const safeSqrtT = Math.sqrt(safeT);
+    const lnSK = Math.log(spotPrice / K);
+    const d1 = (lnSK + (r + sigma*sigma/2)*T) / (sigma * sqrtT);
+    const d2 = d1 - sigma * sqrtT;
+    const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
+    const netOI = s.callOI - s.putOI;
+    const vanna = nd1 * (d2 / sigma) * netOI * 100 * spotPrice;
+    totalVanna += isFinite(vanna) ? vanna : 0;
+    const charm = -nd1 * (r/(sigma*safeSqrtT) - d2/(2*safeT)) * netOI * 100;
+    totalCharm += isFinite(charm) ? charm : 0;
+  });
+  return { totalVanna: totalVanna/1e6, totalCharm: totalCharm/1e6 };
 }
 
-// ── VannaCharm 통합 의견 생성 ──
-function buildVCAdvice(data, tab) {
-  if (!data.length) return { cls:'', text:'데이터 없음' };
-  const last = data[data.length - 1];
-  const surf = last.surfaces_jsonb;
-  const mid = Math.floor((surf.vanna?.length || 1) / 2);
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Greek 힘의 균형 계산
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function calcForceBalance(vc, d, vix, vvix) {
+  const { totalVanna, totalCharm } = vc;
+  const { localGEX, totalGEX, flipZone, spotPrice } = d;
 
-  const vanna = surf.vanna?.[mid] || 0;
-  const charm = surf.charm?.[mid] || 0;
-  const gamma = surf.gamma?.[mid] || 0;
+  // Vanna 활성도: VIX 변화율 × Vanna 절대값
+  const vixHistory = priceHistory.slice(-5).map(h=>h.vix).filter(Boolean);
+  const vixChange = vixHistory.length >= 2
+    ? (vixHistory[vixHistory.length-1] - vixHistory[0]) / vixHistory[0] * 100
+    : 0;
 
-  const prev5 = data.length > 5 ? data[data.length - 6] : null;
-  const prevVanna = prev5?.surfaces_jsonb?.vanna?.[mid] || vanna;
-  const prevCharm = prev5?.surfaces_jsonb?.charm?.[mid] || charm;
-  const vannaDelta = vanna - prevVanna;
-  const charmDelta = charm - prevCharm;
+  // 각 Greek 강도 (0~100%)
+  const vannaStrength = Math.min(Math.abs(totalVanna) / 50 * 100, 100);
+  const charmStrength = Math.min(Math.abs(totalCharm) / 20 * 100, 100);
+  const gexStrength = Math.min(Math.abs(localGEX/1e6) / 50 * 100, 100);
 
-  const absCharm = Math.abs(charm);
-  const absVanna = Math.abs(vanna);
-  const charmDominant = absCharm > absVanna;
-  const ratio = absVanna > 0 ? (absCharm / absVanna).toFixed(1) : '∞';
+  // Vanna 활성화 여부 (VIX 움직임 필요)
+  const vannaActive = Math.abs(vixChange) > 0.5;
+  const vannaDir = totalVanna < 0 ? 'sell' : 'buy'; // 음수Vanna = VIX상승시 매도
 
+  // Charm 활성화 여부 (시간 기반)
   const now = new Date();
   const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const estHour = est.getHours() + est.getMinutes() / 60;
-  const isAfternoon = estHour >= 13;
+  const estHour = est.getHours() + est.getMinutes()/60;
+  const isAfternoon = estHour >= 13 && estHour < 16;
+  const charmDir = totalCharm < 0 ? 'buy' : 'sell';
+  const charmActive = isAfternoon;
 
-  let tabText = '';
-  if (tab === 'vanna') {
-    if (vanna > 0 && vannaDelta > 0) tabText = `Vanna <b>양수 상승</b> — IV 하락 시 딜러 매수 헷지 강화. 단기 지지.`;
-    else if (vanna > 0 && vannaDelta < 0) tabText = `Vanna <b>양수 감소</b> — 딜러 매수 헷지 되감기. 상승 모멘텀 약화.`;
-    else if (vanna > 0) tabText = `Vanna <b>양수 유지</b> — 딜러 매수 방향 유지 중.`;
-    else if (vanna < 0 && vannaDelta < 0) tabText = `Vanna <b>음수 확대</b> — IV 하락 시 딜러 매도 헷지. 하락 압력 증가.`;
-    else if (vanna < 0 && vannaDelta > 0) tabText = `Vanna <b>음수 완화</b> — 하락 압력 줄어드는 중. 반등 가능성.`;
-    else tabText = `Vanna <b>음수 유지</b> — 딜러 매도 방향 유지 중.`;
-  } else if (tab === 'charm') {
-    if (charm < 0) tabText = `Charm <b>음수</b> — 시간 경과로 딜러 매수 강제. ${isAfternoon ? '오후 상승 드리프트 진행 중.' : '오후 1시 이후 상승 드리프트 가능.'}`;
-    else if (charm > 0) tabText = `Charm <b>양수</b> — 시간 경과로 딜러 매도 강제. ${isAfternoon ? '오후 하락 드리프트 진행 중.' : '오후 1시 이후 하락 드리프트 가능.'}`;
-    else tabText = `Charm <b>중립</b> — 시간에 의한 방향 압력 없음.`;
-  } else if (tab === 'gamma') {
-    if (gamma > 0) tabText = `Gamma <b>양수 (Positive GEX)</b> — 딜러가 변동성 억제. 피닝 가능성.`;
-    else tabText = `Gamma <b>음수 (Negative GEX)</b> — 딜러가 추세 증폭. 방향성 강화.`;
-  } else if (tab === 'iv') {
-    const atm = surf.iv?.[mid] || 0;
-    const prevIV = prev5?.surfaces_jsonb?.iv?.[mid] || atm;
-    const ivDelta = atm - prevIV;
-    tabText = `ATM IV <b>${(atm * 100).toFixed(1)}%</b> — ${ivDelta > 0 ? 'IV 상승 중 (변동성 확대)' : 'IV 하락 중 (Vanna/Charm 언와인드 주목)'}.`;
-  } else if (tab === 'vix') {
-    tabText = `VIX <b>${last.vix?.toFixed(2) || '—'}</b> — ${last.vix > 20 ? '변동성 확대 국면. Vanna 언와인드 주의.' : '변동성 안정 국면.'}`;
-  }
+  // GEX 방향
+  const gexDir = totalGEX >= 0 ? 'pin' : 'trend';
 
-  let opinion = '';
-  let cls = '';
+  // Flip Zone 거리
+  const flipDist = flipZone ? Math.abs(spotPrice - flipZone) / spotPrice * 100 : 999;
+  const flipDanger = flipDist < 1.0;
 
-  if (charmDominant && isAfternoon) {
-    if (charm < 0) {
-      cls = 'bull';
-      opinion = `<b>⚡ Charm이 Vanna를 압도 (비율 ${ratio}×)</b> — 지금은 <b>시간이 IV보다 강합니다.</b> 딜러가 시간 경과로 매수를 강제받는 구조. 오후 상승 드리프트 우세. Vanna 방향보다 Charm 방향 추종 권장.`;
-    } else {
-      cls = 'bear';
-      opinion = `<b>⚡ Charm이 Vanna를 압도 (비율 ${ratio}×)</b> — 지금은 <b>시간이 IV보다 강합니다.</b> 딜러가 시간 경과로 매도를 강제받는 구조. 오후 하락 드리프트 우세. Vanna 방향보다 Charm 방향 추종 권장.`;
-    }
-  } else if (charmDominant && !isAfternoon) {
-    cls = 'warn';
-    opinion = `<b>Charm > Vanna (비율 ${ratio}×)</b> — 오후 1시 이후 시간 압력이 가격 방향을 결정할 가능성 높습니다. Charm 부호(${charm < 0 ? '음수→상승' : '양수→하락'}) 주목.`;
-  } else if (!charmDominant && absVanna > 0) {
-    if (vanna > 0) {
-      cls = '';
-      opinion = `<b>Vanna가 Charm을 압도 (비율 ${ratio}×)</b> — <b>IV 변화가 가격 방향을 결정합니다.</b> VIX 하락 시 딜러 매수 → 지지. VIX 상승 시 헷지 역전 주의.`;
-    } else {
-      cls = 'bear';
-      opinion = `<b>Vanna가 Charm을 압도 (비율 ${ratio}×)</b> — <b>IV 변화가 가격 방향을 결정합니다.</b> VIX 하락해도 딜러 매도 압력. 반등 신호는 VIX 급락 + Vanna 전환 동시 확인.`;
-    }
-  }
-
-  if (gamma > 0 && Math.abs(gamma) > Math.abs(vanna) * 0.5) {
-    opinion += ` <span style="color:var(--green)">Gamma 양수 — 피닝 구조 유지 중.</span>`;
-  }
-
-  let dominanceBadge = '';
-  if (absCharm === 0 && absVanna === 0) {
-    dominanceBadge = '';
-  } else if (absCharm / Math.max(absVanna, 0.0001) >= 10) {
-    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(240,136,62,.2);color:var(--orange);margin-bottom:8px">⏱ Charm 지배 (${ratio}×) — 시간이 IV보다 강함</span><br>`;
-  } else if (absCharm / Math.max(absVanna, 0.0001) >= 3) {
-    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(210,153,34,.2);color:var(--yellow);margin-bottom:8px">⚡ Charm 우세 (${ratio}×) — 오후 드리프트 신뢰도 높음</span><br>`;
-  } else if (absVanna / Math.max(absCharm, 0.0001) >= 3) {
-    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(188,140,255,.2);color:var(--purple);margin-bottom:8px">◈ Vanna 우세 (${ratio}×) — IV 변화가 방향 결정</span><br>`;
-  } else {
-    dominanceBadge = `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:var(--bg3);color:var(--text3);margin-bottom:8px">→ Charm/Vanna 혼전 (${ratio}×) — 방향 불확실</span><br>`;
-  }
-
-  const fullText = `${dominanceBadge}${tabText}${opinion ? `<br><br>${opinion}` : ''}`;
-  return { cls, text: fullText };
+  return {
+    vanna: { strength: vannaStrength, dir: vannaDir, active: vannaActive, value: totalVanna, vixChange },
+    charm: { strength: charmStrength, dir: charmDir, active: charmActive, value: totalCharm },
+    gex: { strength: gexStrength, dir: gexDir, value: localGEX/1e6 },
+    flipDist, flipDanger,
+    estHour, isAfternoon
+  };
 }
 
-// ── VannaCharm 차트 렌더 ──
+function getBarColor(pct) {
+  if (pct >= 70) return 'var(--red)';
+  if (pct >= 40) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+function renderForceSidebar(force) {
+  const { vanna, charm, gex, flipDist, flipDanger } = force;
+
+  const vannaLabel = vanna.dir === 'sell' ? '매도 압력' : '매수 압력';
+  const vannaActiveLabel = vanna.active
+    ? `<span style="color:var(--red);font-weight:700">활성화 중</span>`
+    : `<span style="color:var(--text3)">대기 중 (VIX 변화 필요)</span>`;
+
+  const charmLabel = charm.dir === 'sell' ? '매도 드리프트' : '매수 드리프트';
+  const charmActiveLabel = charm.active
+    ? `<span style="color:var(--green);font-weight:700">활성화 중</span>`
+    : `<span style="color:var(--text3)">오후 1시 이후 활성</span>`;
+
+  const gexLabel = gex.dir === 'pin' ? '피닝 (변동성 억제)' : '추세 증폭';
+
+  // 지배적 힘 판단
+  let dominant = '';
+  if (gex.strength > 60) dominant = `<b>GEX 피닝</b>이 지배적 — 큰 방향성 어렵습니다`;
+  else if (vanna.active && vanna.strength > 50) dominant = `<b>Vanna ${vannaLabel}</b>이 지배적`;
+  else if (charm.active && charm.strength > 40) dominant = `<b>Charm ${charmLabel}</b>이 작동 중`;
+  else dominant = `뚜렷한 지배 Greek 없음 — 혼전 구간`;
+
+  const el = document.getElementById('force-sidebar');
+  if (!el) return;
+
+  el.innerHTML = `
+    <div class="force-title">◈ Greek 힘의 균형</div>
+
+    <div class="force-item">
+      <div class="force-label">
+        <span class="force-name">Vanna</span>
+        <span class="force-pct" style="color:${getBarColor(vanna.strength)}">${vanna.strength.toFixed(0)}%</span>
+      </div>
+      <div class="force-bar-bg">
+        <div class="force-bar-fill" style="width:${vanna.strength}%;background:${getBarColor(vanna.strength)}"></div>
+      </div>
+      <div class="force-status">${vannaLabel} / ${vannaActiveLabel}</div>
+      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${vanna.value.toFixed(0)}M ${vanna.vixChange !== 0 ? `(VIX ${vanna.vixChange>0?'+':''}${vanna.vixChange.toFixed(1)}%)` : ''}</div>
+    </div>
+
+    <div class="force-item">
+      <div class="force-label">
+        <span class="force-name">Charm</span>
+        <span class="force-pct" style="color:${getBarColor(charm.strength)}">${charm.strength.toFixed(0)}%</span>
+      </div>
+      <div class="force-bar-bg">
+        <div class="force-bar-fill" style="width:${charm.strength}%;background:${getBarColor(charm.strength)}"></div>
+      </div>
+      <div class="force-status">${charmLabel} / ${charmActiveLabel}</div>
+      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${charm.value.toFixed(0)}M</div>
+    </div>
+
+    <div class="force-item">
+      <div class="force-label">
+        <span class="force-name">GEX</span>
+        <span class="force-pct" style="color:${gex.dir==='pin'?'var(--green)':'var(--red)'}">${gex.strength.toFixed(0)}%</span>
+      </div>
+      <div class="force-bar-bg">
+        <div class="force-bar-fill" style="width:${gex.strength}%;background:${gex.dir==='pin'?'var(--green)':'var(--red)'}"></div>
+      </div>
+      <div class="force-status">${gexLabel}</div>
+      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${gex.value>0?'+':''}${gex.value.toFixed(0)}M</div>
+    </div>
+
+    <div class="force-divider"></div>
+    <div class="force-summary">
+      ${dominant}
+      ${flipDanger ? `<br><br><span style="color:var(--red);font-weight:600">⚠ Flip Zone ${flipDist.toFixed(1)}% 근접</span>` : ''}
+    </div>
+  `;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VannaCharm 차트 렌더 (CBOE 기반 누적)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function renderVCChart(tab) {
   vcActiveTab = tab;
   const canvas = document.getElementById('vc-chart');
-  if (!canvas || !vcData.length) return;
+  if (!canvas) return;
 
   document.querySelectorAll('.vc-tab').forEach(b => b.classList.remove('active'));
-  const activeBtn = document.getElementById(`vc-tab-${tab}`);
-  if (activeBtn) activeBtn.classList.add('active');
+  const btn = document.getElementById(`vc-tab-${tab}`);
+  if (btn) btn.classList.add('active');
 
-  const labels = vcData.map(d => {
-    const h = Math.floor(d.session_minute / 60) + 9;
-    const m = String(d.session_minute % 60).padStart(2,'0');
-    return `${h}:${m}`;
-  });
+  const wrap = document.getElementById('vc-scroll-wrap');
+  const inner = document.getElementById('vc-chart-inner');
+  if (!wrap || !inner) return;
 
-  const surf = tab === 'vix'
-    ? vcData.map(d => d.vix)
-    : vcData.map(d => {
-        const arr = d.surfaces_jsonb?.[tab];
-        if (!arr || !arr.length) return null;
-        return arr[Math.floor(arr.length / 2)];
-      });
+  if (!vcHistory.length) {
+    inner.innerHTML = `<div class="vc-empty">자동갱신 ON 후 데이터가 누적됩니다</div>`;
+    return;
+  }
 
-  const color = { vanna:'#bc8cff', charm:'#f0883e', gamma:'#3fb950', iv:'#58a6ff', vix:'#f85149' };
+  const baseW = wrap.clientWidth || 600;
+  inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
+
+  const labels = vcHistory.map(h => h.time);
+  const dataMap = {
+    vanna: { data: vcHistory.map(h=>h.vanna), color:'#bc8cff', label:'Vanna (M)' },
+    charm: { data: vcHistory.map(h=>h.charm), color:'#f0883e', label:'Charm (M)' },
+    gex:   { data: vcHistory.map(h=>h.gex),   color:'#3fb950', label:'Local GEX (M)' },
+    vix:   { data: vcHistory.map(h=>h.vix),    color:'#f85149', label:'VIX' },
+  };
+
+  const { data, color, label } = dataMap[tab] || dataMap.vanna;
 
   if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
 
@@ -439,13 +453,14 @@ function renderVCChart(tab) {
     data: {
       labels,
       datasets: [{
-        label: tab.toUpperCase(),
-        data: surf,
-        borderColor: color[tab] || '#58a6ff',
-        backgroundColor: 'transparent',
+        label,
+        data,
+        borderColor: color,
+        backgroundColor: color + '15',
+        fill: true,
         borderWidth: 2,
-        pointRadius: 0,
-        pointHoverRadius: 4,
+        pointRadius: 2,
+        pointHoverRadius: 5,
         tension: 0.3,
         spanGaps: true,
       }]
@@ -461,72 +476,186 @@ function renderVCChart(tab) {
         }
       },
       scales: {
-        x: { ticks: { color: '#6e7681', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: 'rgba(48,54,61,.5)' } },
-        y: { ticks: { color: '#6e7681', font: { size: 10 } }, grid: { color: 'rgba(48,54,61,.5)' } },
+        x: { ticks: { color:'#6e7681', font:{ size:10 }, maxTicksLimit:10 }, grid:{ color:'rgba(48,54,61,.5)' } },
+        y: { ticks: { color:'#6e7681', font:{ size:10 } }, grid:{ color:'rgba(48,54,61,.5)' } },
       }
     }
   });
-
-  const advice = buildVCAdvice(vcData, tab === 'vix' ? 'vanna' : tab);
-  const advEl = document.getElementById('vc-advice');
-  if (advEl) { advEl.className = `vc-advice ${advice.cls}`; advEl.innerHTML = advice.text; }
 }
 
-// ── VannaCharm 패널 초기화 ──
-async function initVCPanel() {
-  const panel = document.getElementById('vc-panel');
-  if (!panel) return;
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 통합 상황판단 — 고정 섹션
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildFixedJudgment(d, vc) {
+  const { spotPrice, flipZone, putWall, callWall, localGEX, totalGEX, upStrikes, dnStrikes } = d;
+  const { totalVanna, totalCharm } = vc;
+  const items = [];
 
-  panel.innerHTML = `<div class="vc-loading">⏳ VannaCharm 데이터 로드 중...</div>`;
-
-  vcData = [];
-  const meta = await loadVannaCharm();
-
-  if (!meta || !vcData.length) {
-    const session = meta?._meta?.marketSession || '';
-    panel.innerHTML = `
-      <div class="vc-header">
-        <div class="vc-title">◈ VannaCharm 실시간 흐름</div>
-        <div class="vc-session ${session}">${{PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[session]||'대기'}</div>
-      </div>
-      <div class="vc-loading" style="color:var(--text3)">장중 데이터가 없습니다. 정규장(9:30 AM ET) 시작 후 자동으로 업데이트됩니다.</div>`;
-    return;
+  // GEX 구조
+  const localM = localGEX / 1e6;
+  if (totalGEX >= 0) {
+    let pinRange = '';
+    if (localM > 3000) pinRange = `예상 피닝 범위 $${(spotPrice*0.997).toFixed(0)} ~ $${(spotPrice*1.003).toFixed(0)} (±0.3%)`;
+    else if (localM > 1000) pinRange = `예상 피닝 범위 $${(spotPrice*0.995).toFixed(0)} ~ $${(spotPrice*1.005).toFixed(0)} (±0.5%)`;
+    else pinRange = `피닝 범위 넓음 (±1% 이상 가능)`;
+    items.push({ cls:'ji-green', icon:'✚', text:`<b>Positive GEX +${localM.toFixed(0)}M</b> — 오늘 큰 방향성 움직임 어렵습니다. ${pinRange}` });
+  } else {
+    items.push({ cls:'ji-red', icon:'▼', text:`<b>Negative GEX ${localM.toFixed(0)}M</b> — 딜러가 추세를 증폭합니다. 방향 한 번 잡히면 가속 가능` });
   }
 
-  panel.innerHTML = `
-    <div class="vc-header">
-      <div class="vc-title">◈ VannaCharm 실시간 흐름</div>
-      <div class="vc-session ${meta.marketSession}" id="vc-session">${{PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[meta.marketSession]||''}</div>
-    </div>
-    <div class="vc-tabs">
-      <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')">Vanna</button>
-      <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')">Charm</button>
-      <button class="vc-tab" id="vc-tab-gamma" onclick="renderVCChart('gamma')">Gamma</button>
-      <button class="vc-tab" id="vc-tab-iv" onclick="renderVCChart('iv')">IV</button>
-      <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')">VIX</button>
-    </div>
-    <div class="vc-chart-wrap"><canvas id="vc-chart"></canvas></div>
-    <div class="vc-advice" id="vc-advice"></div>`;
-
-  renderVCChart('vanna');
-
-  if (vcInterval) clearInterval(vcInterval);
-  vcInterval = setInterval(async () => {
-    await loadVannaCharm();
-    renderVCChart(vcActiveTab);
-    const sesEl = document.getElementById('vc-session');
-    if (sesEl) {
-      const now = new Date();
-      const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-      const h = est.getHours() + est.getMinutes()/60;
-      const s = h>=9.5&&h<16?'REGULAR':h>=4&&h<9.5?'PRE':h>=16&&h<20?'POST':'CLOSED';
-      sesEl.className = `vc-session ${s}`;
-      sesEl.textContent = {PRE:'프리마켓',REGULAR:'정규장',POST:'애프터',CLOSED:'장 마감'}[s];
+  // Vanna 구조
+  if (Math.abs(totalVanna) > 100) {
+    if (totalVanna < 0) {
+      items.push({ cls:'ji-red', icon:'◈', text:`<b>Vanna ${totalVanna.toFixed(0)}M (음수)</b> — VIX 상승 시 딜러 매도 헷지 강화. VIX가 올라오면 하락 압력 가속됩니다` });
+    } else {
+      items.push({ cls:'ji-green', icon:'◈', text:`<b>Vanna ${totalVanna.toFixed(0)}M (양수)</b> — VIX 하락 시 딜러 매수 헷지. VIX가 내려오면 상승 지지력 강화됩니다` });
     }
-  }, 180000);
+  }
+
+  // Charm 구조
+  if (Math.abs(totalCharm) > 50) {
+    if (totalCharm < 0) {
+      items.push({ cls:'ji-blue', icon:'⏱', text:`<b>Charm ${totalCharm.toFixed(0)}M (음수)</b> — 시간 경과로 딜러 매수 강제. 오후 1시 이후 매수 드리프트 압력이 작동합니다` });
+    } else {
+      items.push({ cls:'ji-orange', icon:'⏱', text:`<b>Charm ${totalCharm.toFixed(0)}M (양수)</b> — 시간 경과로 딜러 매도 강제. 오후 1시 이후 하락 드리프트 압력이 작동합니다` });
+    }
+  }
+
+  // Flip Zone
+  if (flipZone) {
+    const flipDist = Math.abs(spotPrice - flipZone) / spotPrice * 100;
+    if (flipDist < 0.5) {
+      items.push({ cls:'ji-red', icon:'⚡', text:`<b>Flip Zone $${flipZone} 극근접 (${flipDist.toFixed(2)}%)</b> — 이탈 시 딜러 방향 전환, 하락 가속 가능. 최우선 경계 레벨` });
+    } else if (flipDist < 1.5) {
+      items.push({ cls:'ji-yellow', icon:'⚠', text:`<b>Flip Zone $${flipZone} 근접 (${flipDist.toFixed(2)}%)</b> — 이탈 시 딜러 방향 전환. 하락 심화 가능` });
+    } else {
+      items.push({ cls:'ji-blue', icon:'○', text:`<b>Flip Zone $${flipZone}</b> — 현재가 대비 ${flipDist.toFixed(1)}% 하방. 당장 위협 아님` });
+    }
+  }
+
+  // Put Wall / Call Wall
+  if (putWall) {
+    const putDist = (spotPrice - putWall) / spotPrice * 100;
+    items.push({ cls:'ji-red', icon:'▼', text:`<b>Put Wall $${putWall}</b> — 하방 ${putDist.toFixed(1)}%. 대규모 풋 헷지 집중. 이탈 시 낙폭 가속` });
+  }
+  if (callWall) {
+    const callDist = (callWall - spotPrice) / spotPrice * 100;
+    items.push({ cls:'ji-green', icon:'▲', text:`<b>Call Wall $${callWall}</b> — 상방 ${callDist.toFixed(1)}%. 대규모 콜 헷지 집중. 상단 저항` });
+  }
+
+  return items;
 }
 
-// ── 자동갱신 토글 ──
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 실시간 상황판단 이벤트 생성
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildLiveJudgment(newSpot, vc, d, ctx, timeStr) {
+  const events = [];
+  const { totalVanna, totalCharm } = vc;
+  const { flipZone, totalGEX, spotPrice: baseSpot } = d;
+  const { marketState, preMarketPct, prevClose, vix: currentVix } = ctx;
+
+  const vixHistory = priceHistory.slice(-5).map(h=>h.vix).filter(Boolean);
+  const vixChange = vixHistory.length >= 2
+    ? (vixHistory[vixHistory.length-1] - vixHistory[0]) / vixHistory[0] * 100
+    : 0;
+
+  const now = new Date();
+  const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = est.getHours() + est.getMinutes()/60;
+
+  // 프리마켓 분석
+  if (marketState === 'PRE' && prevClose && preMarketPct != null) {
+    const abs = Math.abs(preMarketPct);
+    if (abs > 0.5) {
+      const dir = preMarketPct > 0 ? '상승' : '하락';
+      const vannaDesc = totalVanna < 0
+        ? `Vanna 음수 구조 — 개장 후 VIX ${preMarketPct>0?'하락':'상승'} 시 ${preMarketPct>0?'매도':'매수'} 압력 가능`
+        : `Vanna 양수 구조 — 개장 후 VIX 흐름 주목`;
+      events.push({ cls: preMarketPct>0?'le-warn':'le-info', msg:`프리마켓 ${dir} ${abs.toFixed(2)}% — 딜러 헷지 ${dir} 방향 진행 중. ${vannaDesc}` });
+    }
+  }
+
+  // VIX 변화 감지
+  if (Math.abs(vixChange) > 1.0 && totalVanna !== 0) {
+    if (vixChange > 0 && totalVanna < 0) {
+      events.push({ cls:'le-danger', msg:`VIX +${vixChange.toFixed(1)}% 상승 — Vanna 음수(${totalVanna.toFixed(0)}M) 활성화. 딜러 매도 압력 강화 중` });
+    } else if (vixChange < 0 && totalVanna > 0) {
+      events.push({ cls:'le-good', msg:`VIX ${vixChange.toFixed(1)}% 하락 — Vanna 양수(${totalVanna.toFixed(0)}M) 활성화. 딜러 매수 지지 강화 중` });
+    } else if (vixChange < 0 && totalVanna < 0) {
+      events.push({ cls:'le-info', msg:`VIX ${vixChange.toFixed(1)}% 하락 — Vanna 음수지만 VIX 하락으로 매도 압력 완화 중` });
+    }
+  }
+
+  // Charm 타이밍
+  if (estHour >= 13 && estHour < 13.1) {
+    const charmMsg = totalCharm < 0 ? '매수 드리프트 시작' : '하락 드리프트 시작';
+    events.push({ cls: totalCharm<0?'le-good':'le-warn', msg:`오후 1시 경과 — Charm(${totalCharm.toFixed(0)}M) ${charmMsg}. 시간 압력이 가격에 반영되기 시작합니다` });
+  }
+
+  if (estHour >= 15 && estHour < 15.1) {
+    events.push({ cls:'le-warn', msg:`마감 1시간 전 — Charm 효과 최대화. 딜러 헷지 청산 물량 주의. 방향성 확대 가능` });
+  }
+
+  // Flip Zone 근접
+  if (flipZone) {
+    const dist = Math.abs(newSpot - flipZone) / newSpot * 100;
+    if (dist < 0.3) {
+      events.push({ cls:'le-danger', msg:`⚡ Flip Zone $${flipZone} 극근접 (${dist.toFixed(2)}%) — 이탈 시 딜러 방향 전환, 하락 가속 가능` });
+    } else if (dist < 0.8) {
+      events.push({ cls:'le-warn', msg:`Flip Zone $${flipZone} 근접 (${dist.toFixed(2)}%) — 이탈 여부 주목` });
+    }
+  }
+
+  // GEX 상태
+  if (totalGEX >= 0) {
+    const localM = d.localGEX / 1e6;
+    if (localM > 2000) {
+      events.push({ cls:'le-info', msg:`Positive GEX 강함 (+${localM.toFixed(0)}M) — 현재 변동성 억제 중. 급등락 가능성 낮음` });
+    }
+  }
+
+  // 기본 메시지
+  if (!events.length) {
+    events.push({ cls:'le-info', msg:`현재가 $${newSpot.toFixed(2)} — 주요 트리거 없음. 구조 유지 중` });
+  }
+
+  return events;
+}
+
+function renderJudgmentPanel(fixedItems, liveEvts, timeStr) {
+  const fixedEl = document.getElementById('judgment-fixed-content');
+  const liveEl = document.getElementById('judgment-live-content');
+  if (!fixedEl || !liveEl) return;
+
+  // 고정 섹션 (최초 1회만 렌더)
+  if (fixedEl.dataset.rendered !== '1') {
+    fixedEl.innerHTML = fixedItems.map(item => `
+      <div class="judgment-item ${item.cls}">
+        <span class="ji-icon">${item.icon}</span>
+        <span class="ji-text">${item.text}</span>
+      </div>
+    `).join('');
+    fixedEl.dataset.rendered = '1';
+  }
+
+  // 실시간 섹션 누적
+  liveEvts.forEach(ev => {
+    liveEvents.unshift({ time: timeStr, cls: ev.cls, msg: ev.msg });
+  });
+  if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
+
+  liveEl.innerHTML = liveEvents.map(e => `
+    <div class="live-event ${e.cls}">
+      <span class="le-time">${e.time}</span>
+      <span class="le-msg">${e.msg}</span>
+    </div>
+  `).join('') || `<div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">감지 중...</span></div>`;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 자동갱신
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function toggleAuto() {
   if (autoInterval) {
     clearInterval(autoInterval);
@@ -542,258 +671,88 @@ function toggleAuto() {
   }
 }
 
-// ── 자동갱신 ──
 async function autoRefresh() {
   if (!currentD) return;
   try {
     setStatus('updating');
     const sym = document.getElementById('sym-select').value.replace('_','');
 
-    const estNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const estH = estNow.getHours() + estNow.getMinutes() / 60;
-    const isRegular = estH >= 9.5 && estH < 16;
+    const [priceJson, vixJson] = await Promise.all([
+      fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
+      fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
+    ]);
 
-    let newSpot, marketState, priceLabel, prevClose, preMarketPct;
-
-    if (isRegular && vcData.length) {
-      const last = vcData[vcData.length - 1];
-      newSpot     = last.spot;
-      vixVal      = last.vix;
-      marketState = 'REGULAR';
-      priceLabel  = 'regular';
-      prevClose   = currentD.spotPrice;
-      preMarketPct = null;
-
-      fetch(`${PROXY}/api/vix?symbols=VVIX`).then(r=>r.json()).then(j=>{
-        vvixVal = j.VVIX?.price;
-        updateVIXMetrics();
-      }).catch(()=>{});
-
-    } else {
-      const [priceJson, vixJson] = await Promise.all([
-        fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
-        fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
-      ]);
-      newSpot      = priceJson.price;
-      marketState  = priceJson.marketState;
-      priceLabel   = priceJson.priceLabel;
-      prevClose    = priceJson.prevClose;
-      preMarketPct = priceJson.preMarketChangePercent;
-      vixVal       = vixJson.VIX?.price;
-      vvixVal      = vixJson.VVIX?.price;
-    }
+    const newSpot = priceJson.price;
+    const marketState = priceJson.marketState;
+    const priceLabel = priceJson.priceLabel;
+    const prevClose = priceJson.prevClose;
+    const preMarketPct = priceJson.preMarketChangePercent;
+    vixVal = vixJson.VIX?.price;
+    vvixVal = vixJson.VVIX?.price;
 
     const now = new Date();
     const timeStr = now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    priceHistory.push({ time:timeStr, price:newSpot, marketState, priceLabel, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
+    priceHistory.push({ time:timeStr, price:newSpot, marketState, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
 
-    const judgment = analyzeRealtime(newSpot, priceHistory, currentD, { marketState, priceLabel, preMarketPct, prevClose });
-    const unwind   = detectUnwind(priceHistory, currentD);
+    // Vanna/Charm 재계산
+    const vc = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
 
+    // VannaCharm 히스토리 누적
+    vcHistory.push({
+      time: timeStr,
+      vanna: parseFloat(vc.totalVanna.toFixed(2)),
+      charm: parseFloat(vc.totalCharm.toFixed(2)),
+      gex: parseFloat((currentD.localGEX/1e6).toFixed(2)),
+      vix: vixVal,
+      spot: newSpot
+    });
+    if (vcHistory.length > 120) vcHistory.shift();
+
+    // UI 업데이트
     const stateLabel = { PRE:'프리마켓', REGULAR:'정규장', POST:'애프터', CLOSED:'마감' }[marketState] || marketState;
     document.getElementById('data-time').textContent = `${stateLabel} ${timeStr}`;
     updateVIXMetrics();
-    updateSpotMetric(newSpot, marketState, priceLabel, preMarketPct, prevClose);
-    renderJudgment(judgment, timeStr, newSpot);
-    renderUnwind(unwind, timeStr);
+    updateSpotMetric(newSpot, marketState, preMarketPct, prevClose);
 
-    const narrEl = document.getElementById('narrative-body');
-    if (narrEl && currentD) {
-      const liveCtx = { livePrice: newSpot, marketState, prevClose };
-      const freshNarr = buildNarrative(currentD, liveCtx);
-      if (freshNarr) narrEl.innerHTML = freshNarr.main;
-    }
+    // Vanna/Charm 메트릭 업데이트
+    const mVanna = document.getElementById('metric-vanna');
+    const mCharm = document.getElementById('metric-charm');
+    if (mVanna) { mVanna.querySelector('.val').textContent = vc.totalVanna.toFixed(1)+'M'; mVanna.className='metric'+(vc.totalVanna<-4?' red':vc.totalVanna>4?' green':''); }
+    if (mCharm) { mCharm.querySelector('.val').textContent = vc.totalCharm.toFixed(1)+'M'; mCharm.className='metric'+(Math.abs(vc.totalCharm)>2?' yellow':''); }
 
-    const pmPanel = document.getElementById('premarket-panel');
-    if (pmPanel && currentD) {
-      const liveVC = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
-      const liveRev = analyzePremarketReversal(currentD, liveVC, marketState, preMarketPct);
-      pmPanel.className = `premarket-panel ${liveRev.level}`;
-      const pmMsg = document.getElementById('pm-message');
-      const pmDet = document.getElementById('pm-detail');
-      const pmVanna = document.getElementById('pm-vanna');
-      const pmCharm = document.getElementById('pm-charm');
-      const pmSkew  = document.getElementById('pm-skew');
-      const pmScore = document.getElementById('pm-score');
-      if (pmMsg) pmMsg.textContent = liveRev.message;
-      if (pmDet) pmDet.textContent = liveRev.detail;
-      if (pmVanna) pmVanna.textContent = liveVC.totalVanna.toFixed(1)+'M';
-      if (pmCharm) pmCharm.textContent = liveVC.totalCharm.toFixed(1)+'M';
-      if (pmSkew)  pmSkew.textContent  = liveRev.putSkew.toFixed(2);
-      if (pmScore) pmScore.textContent  = liveRev.score+'/6';
-      const mVanna = document.getElementById('metric-vanna');
-      const mCharm = document.getElementById('metric-charm');
-      if (mVanna) { mVanna.querySelector('.val').textContent = liveVC.totalVanna.toFixed(1)+'M'; mVanna.className='metric'+(liveVC.totalVanna>4?' red':liveVC.totalVanna<-4?' green':''); }
-      if (mCharm) { mCharm.querySelector('.val').textContent = liveVC.totalCharm.toFixed(1)+'M'; mCharm.className='metric'+(Math.abs(liveVC.totalCharm)>2?' yellow':''); }
-    }
+    // 힘의 균형 업데이트
+    const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
+    renderForceSidebar(force);
+
+    // 차트 업데이트
+    renderVCChart(vcActiveTab);
+
+    // 실시간 상황판단 업데이트
+    const ctx = { marketState, priceLabel, preMarketPct, prevClose, vix: vixVal };
+    const liveEvts = buildLiveJudgment(newSpot, vc, currentD, ctx, timeStr);
+    const fixedItems = buildFixedJudgment(currentD, vc);
+    renderJudgmentPanel(fixedItems, liveEvts, timeStr);
 
     prevSpot = newSpot;
     setStatus('live');
   } catch(e) { console.error(e); setStatus('error'); }
 }
 
-// ── 실시간 상황 판단 로직 ──
-function analyzeRealtime(newSpot, history, d, ctx) {
-  ctx = ctx || {};
-  const { hedgeTargets, upStrikes, dnStrikes, flipZone, totalGEX } = d;
-  const marketState  = ctx.marketState  || 'REGULAR';
-  const priceLabel   = ctx.priceLabel   || 'regular';
-  const preMarketPct = ctx.preMarketPct || null;
-  const prevClose    = ctx.prevClose    || null;
-  const base = (marketState === 'PRE' && prevClose) ? prevClose : d.spotPrice;
-  const pctChange = (newSpot - base) / base * 100;
-  const vixUp = history.length >= 3 && history[history.length-1].vix > history[history.length-3].vix * 1.03;
-  const vixDn = history.length >= 3 && history[history.length-1].vix < history[history.length-3].vix * 0.97;
+function updateSpotMetric(newSpot, marketState, preMarketPct, prevClose) {
+  const m = document.getElementById('metric-spot'); if (!m) return;
+  if (!currentD) return;
+  const base = (marketState === 'PRE' && prevClose) ? prevClose : currentD.spotPrice;
+  const pct = ((newSpot - base) / base * 100);
 
-  let trend = 'neutral', message = '', detail = '';
-  const events = [];
+  let label = '$' + newSpot.toFixed(1);
+  if (marketState === 'PRE') label = '[PRE] $' + newSpot.toFixed(1);
+  else if (marketState === 'POST') label = '[POST] $' + newSpot.toFixed(1);
 
-  const breachedDn = dnStrikes.filter(s => newSpot <= s.strike).sort((a,b)=>b.strike-a.strike);
-  const breachedUp = upStrikes.filter(s => newSpot >= s.strike).sort((a,b)=>a.strike-b.strike);
-
-  if (pctChange <= -1.5) {
-    trend = 'bearish';
-    message = `⚠ 하락 심화 진행 중 (${pctChange.toFixed(2)}%)`;
-    if (breachedDn.length >= 2) detail = `하락 방향 헷지 구간 ${breachedDn.length}개 이탈 — 딜러 추가 매도 헷지 가속`;
-    else if (breachedDn.length === 1) detail = `$${breachedDn[0].strike} 헷지 구간 진입 — 딜러 매도 헷지 시작`;
-    if (vixUp) { events.push({cls:'dn',msg:'VIX 상승 중 — Vanna 매도 압력 추가'}); }
-  } else if (pctChange <= -0.5) {
-    trend = 'bearish';
-    message = `▼ 하락 추세 (${pctChange.toFixed(2)}%)`;
-    if (breachedDn.length > 0) detail = `$${breachedDn[0].strike} 헷지 구간 근접 — 돌파 시 낙폭 가속`;
-    if (vixDn) { events.push({cls:'warn',msg:'VIX 수축 신호 — 반등 가능성 체크'}); }
-  } else if (pctChange >= 1.5) {
-    trend = 'bullish';
-    message = `▲ 상승 추세 (${pctChange.toFixed(2)}%)`;
-    if (breachedUp.length > 0) detail = `$${breachedUp[0].strike} 콜 헷지 구간 진입 — 딜러 매수 헷지 동반`;
-    if (vixDn) { events.push({cls:'up',msg:'VIX 수축 — Vanna 매수 압력 강화'}); }
-  } else if (pctChange >= 0.5) {
-    trend = 'bullish';
-    message = `▲ 소폭 상승 (${pctChange.toFixed(2)}%)`;
-  }
-
-  if (history.length >= 5) {
-    const recent5 = history.slice(-5).map(h=>h.price);
-    const prev3Avg = (recent5[0]+recent5[1]+recent5[2])/3;
-    const last2Avg = (recent5[3]+recent5[4])/2;
-    const microChange = (last2Avg - prev3Avg) / prev3Avg * 100;
-
-    if (trend === 'bearish' && microChange > 0.3) {
-      trend = 'reversal-up';
-      message = `↑ 반전 상승 의심 — 하락 추세에서 단기 반등 신호`;
-      detail = `직전 5분 ${microChange.toFixed(2)}% 반등 감지`;
-      events.push({cls:'warn',msg:'추세 전환 여부 확인 필요 — VIX 역전 여부 주목'});
-    } else if (trend === 'bullish' && microChange < -0.3) {
-      trend = 'reversal-dn';
-      message = `↓ 반전 하락 의심 — 상승 추세에서 단기 꺾임 신호`;
-      detail = `직전 5분 ${Math.abs(microChange).toFixed(2)}% 하락 감지`;
-    }
-  }
-
-  if (!message) { trend='neutral'; message='→ 중립 (기준가 ±0.5% 이내)'; }
-
-  const priceContext = marketState === 'PRE'
-    ? `프리마켓 (전일종가 $${prevClose?.toFixed(2)} 기준)`
-    : marketState === 'POST' ? '애프터마켓' : '정규장';
-
-  return { trend, message, detail, events, newSpot, pctChange, priceContext, marketState };
-}
-
-// ── 언와인드 감지 ──
-function detectUnwind(history, d) {
-  if (history.length < 5) return null;
-  const { totalGEX, spotPrice: baseSpot } = d;
-
-  const recent = history.slice(-10);
-  const prices = recent.map(h=>h.price);
-  const vixes  = recent.map(h=>h.vix).filter(Boolean);
-
-  const mean = prices.reduce((a,b)=>a+b,0)/prices.length;
-  const variance = prices.reduce((a,b)=>a+(b-mean)**2,0)/prices.length;
-  const stdDev = Math.sqrt(variance);
-  const pctStd = stdDev / mean * 100;
-
-  const vixSlope = vixes.length >= 4
-    ? (vixes[vixes.length-1] - vixes[0]) / vixes[0] * 100
-    : 0;
-
-  const currentPct = (prices[prices.length-1] - baseSpot) / baseSpot * 100;
-  const prevPct = (prices[Math.floor(prices.length/2)] - baseSpot) / baseSpot * 100;
-  const reversion = Math.abs(currentPct) < Math.abs(prevPct) - 0.2;
-
-  let signal = null, detail = '';
-
-  if (pctStd < 0.05 && Math.abs(currentPct) > 0.5 && reversion) {
-    signal = 'strong';
-    detail = `변동성 수축(±${(pctStd*100).toFixed(0)}bp) + 가격 회귀 중 — 딜러 헷지 언와인드 가능성`;
-  } else if (vixSlope < -3 && reversion) {
-    signal = 'moderate';
-    detail = `VIX ${vixSlope.toFixed(1)}% 하락 + 현재가 회귀 — Vanna 언와인드 진행 의심`;
-  } else if (reversion && vixSlope < -1) {
-    signal = 'weak';
-    detail = `가격 안정화 + VIX 소폭 하락 — 언와인드 초기 신호 관찰 중`;
-  }
-
-  const now = new Date();
-  const estTime = new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-  const estHour = estTime.getHours() + estTime.getMinutes()/60;
-  const marketClose = 16.0;
-  const minsToClose = Math.max(0, Math.round((marketClose - estHour) * 60));
-
-  return { signal, detail, minsToClose, stdDev: pctStd, vixSlope, reversion };
-}
-
-function renderJudgment(j, timeStr, newSpot) {
-  const panel = document.getElementById('live-judgment');
-  if (!panel) return;
-  panel.className = 'live-judgment visible';
-
-  if (j.trend !== 'neutral') {
-    liveEvents.unshift({
-      time: timeStr,
-      cls: j.trend.includes('bear') || j.trend.includes('reversal-dn') ? 'dn'
-         : j.trend.includes('bull') || j.trend.includes('reversal-up') ? 'up' : 'warn',
-      msg: j.message + (j.detail ? ' — ' + j.detail : '')
-    });
-    if (liveEvents.length > 10) liveEvents.pop();
-  }
-
-  const ctx = j.priceContext ? `<span style="font-size:11px;color:var(--text3);margin-left:8px">${j.priceContext}</span>` : '';
-  document.getElementById('lj-trend').className = `lj-trend ${j.trend}`;
-  document.getElementById('lj-trend').innerHTML =
-    `<span>${j.message}</span>${ctx}<span style="font-size:12px;font-weight:400;margin-left:auto">$${newSpot.toFixed(2)}</span>`;
-
-  const evHtml = liveEvents.map(e =>
-    `<div class="lj-event"><span class="ev-t">${e.time}</span><span class="ev-msg ${e.cls}">${e.msg}</span></div>`
-  ).join('');
-  document.getElementById('lj-events').innerHTML = evHtml
-    || '<div class="lj-event"><span class="ev-msg" style="color:var(--text3)">감지 중...</span></div>';
-}
-
-function renderUnwind(u, timeStr) {
-  const panel = document.getElementById('unwind-panel');
-  if (!panel || !u) return;
-
-  if (!u.signal) { panel.className='unwind-panel'; return; }
-  panel.className = 'unwind-panel visible';
-
-  const signalLabels = {
-    strong: `<span class="strong">⚡ 강한 언와인드 신호</span>`,
-    moderate: `<span class="signal">◈ 언와인드 진행 의심</span>`,
-    weak: `<span style="color:var(--text2)">○ 언와인드 초기 관찰</span>`,
-  };
-
-  const closeMsg = u.minsToClose > 0
-    ? `마감 약 <b>${u.minsToClose}분</b> 전`
-    : '시장 마감 이후';
-
-  document.getElementById('unwind-content').innerHTML = `
-    <div style="margin-bottom:8px">${signalLabels[u.signal]} — ${closeMsg}</div>
-    <div>${u.detail}</div>
-    ${u.signal === 'strong' ? `<div style="margin-top:8px;color:var(--yellow);font-weight:600">→ 반대 방향 포지션 진입 기회 탐색 시점</div>` : ''}
-  `;
+  m.querySelector('.val').textContent = label;
+  m.querySelector('.lbl').textContent = `현재가 ${pct>=0?'+':''}${pct.toFixed(2)}%`;
+  m.className = 'metric blue' + (marketState==='PRE'?' pre-market':marketState==='POST'?' post-market':'');
 }
 
 async function loadExpirations() {
@@ -803,16 +762,11 @@ async function loadExpirations() {
     const json = await r.json();
     spotPrice = json.data.current_price;
     allOptions = json.data.options;
-
     const todayEST = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-
     const exps = [...new Set(allOptions.map(o=>{
       const m=o.option.trim().match(/(\d{6})[CP]/); if(!m) return null;
       return `20${m[1].slice(0,2)}-${m[1].slice(2,4)}-${m[1].slice(4,6)}`;
-    }).filter(Boolean))]
-      .filter(e => e >= todayEST)
-      .sort();
-
+    }).filter(Boolean))].filter(e=>e>=todayEST).sort();
     const sel = document.getElementById('exp-select');
     sel.innerHTML = exps.map((e,i)=>`<option value="${e}"${i===0?' selected':''}>${i===0?e+' (0DTE)':e}</option>`).join('');
     document.getElementById('data-time').textContent = `로드: ${json.timestamp}`;
@@ -832,7 +786,6 @@ async function loadData() {
     if (!allOptions.length) {
       const json = await fetch(`${PROXY}/api/options?symbol=${sym}`).then(r=>r.json());
       spotPrice=json.data.current_price; allOptions=json.data.options;
-      document.getElementById('data-time').textContent=`로드: ${json.timestamp}`;
     }
 
     const expKey = exp.replace(/-/g,'').slice(2);
@@ -872,17 +825,15 @@ async function loadData() {
     const totalPutOI=strikes.reduce((a,s)=>a+s.putOI,0);
     const pcr=totalPutOI/Math.max(totalCallOI,1);
     const totalGEX=cum;
-
     const upStrikes=strikes.filter(s=>s.strike>spotPrice&&s.strike<=spotPrice*1.05).sort((a,b)=>b.callHedge-a.callHedge).slice(0,4);
     const dnStrikes=strikes.filter(s=>s.strike<spotPrice&&s.strike>=spotPrice*0.95).sort((a,b)=>b.putHedge-a.putHedge).slice(0,4);
-    const hedgeTargets=[...upStrikes,...dnStrikes];
 
-    currentStrikes=strikes; priceHistory=[]; liveEvents=[];
+    currentStrikes=strikes; priceHistory=[]; liveEvents=[]; vcHistory=[];
     prevSpot=spotPrice;
-    const d={strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes,hedgeTargets};
+    const d={strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes};
     currentD=d;
     render(d);
-    initVCPanel();
+
     if (!autoInterval) {
       document.getElementById('auto-btn').className = 'auto-btn on';
       document.getElementById('auto-label').textContent = '자동갱신 ON';
@@ -904,172 +855,10 @@ function setStatus(s){
   else{dot.className='status-dot';txt.textContent='오류';}
 }
 
-function updateSpotMetric(newSpot, marketState, priceLabel, preMarketPct, prevClose) {
-  const m = document.getElementById('metric-spot'); if (!m) return;
-  if (!currentD) return;
-  const base = (marketState === 'PRE' && prevClose) ? prevClose : currentD.spotPrice;
-  const pct = ((newSpot - base) / base * 100);
-  const stateTag = { PRE:'[프리]', POST:'[애프터]', CLOSED:'[마감]' }[marketState] || '';
-  m.querySelector('.val').textContent = stateTag + '$' + newSpot.toFixed(1);
-  m.querySelector('.lbl').textContent = `현재가 ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
-  m.style.borderColor = marketState === 'PRE' ? 'rgba(188,140,255,.5)'
-    : marketState === 'POST' ? 'rgba(240,136,62,.5)' : '';
-}
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ── [수정됨] Vanna / Charm Exposure 계산 ──
-// 핵심 수정: T가 0에 수렴할 때 Charm 공식의 d2/(2T) 항이 폭발하는
-// 수치 불안정 문제를 safeT 클램핑으로 해결
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function calculateVannaCharm(strikes, spotPrice, expDate) {
-  const msToExp = new Date(expDate) - new Date();
-
-  // ★ 수정 1: 최소 T를 1일(1/365)로 설정
-  // 기존: 1/(365*24*60) = 약 1분 → Charm 폭발 원인
-  // 수정: 1/365 = 약 1일 → 안정적인 하한값
-  const T = Math.max(msToExp / (1000*60*60*24*365), 1/365);
-
-  const r = 0.045;
-
-  // ★ 수정 2: Charm 계산용 safeT 추가
-  // 만기 당일(0DTE)에도 최소 0.5일로 클램핑하여 d2/(2T) 폭발 방지
-  const safeT = Math.max(T, 0.5/365);
-
-  let totalVanna = 0, totalCharm = 0;
-
-  strikes.forEach(s => {
-    const K = s.strike;
-    const sigma = s.iv > 0 ? s.iv : 0.20;
-    const sqrtT = Math.sqrt(T);
-    const safeSqrtT = Math.sqrt(safeT);
-    const lnSK = Math.log(spotPrice / K);
-
-    const d1 = (lnSK + (r + sigma*sigma/2)*T) / (sigma * sqrtT);
-    const d2 = d1 - sigma * sqrtT;
-
-    // 표준정규 PDF
-    const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
-
-    // Vanna Exposure
-    const netOI = s.callOI - s.putOI;
-    const vanna = nd1 * (d2 / sigma) * netOI * 100 * spotPrice;
-    totalVanna += isFinite(vanna) ? vanna : 0;
-
-    // ★ 수정 3: Charm 계산 시 safeT 사용
-    // 기존: -nd1 * (r/(sigma*sqrtT) - d2/(2*T))  → T→0 시 d2/(2T) 폭발
-    // 수정: safeT로 클램핑된 값 사용 → 안정적인 수치
-    const charm = -nd1 * (r/(sigma*safeSqrtT) - d2/(2*safeT)) * netOI * 100;
-    totalCharm += isFinite(charm) ? charm : 0;
-  });
-
-  return { totalVanna: totalVanna/1e6, totalCharm: totalCharm/1e6 };
-}
-
-// ── 프리마켓 반전 분석 ──
-function analyzePremarketReversal(d, vc, marketState, preMarketPct) {
-  const { strikes, spotPrice, pcr, flipZone } = d;
-
-  const near = strikes.filter(s => Math.abs(s.strike - spotPrice)/spotPrice < 0.08);
-  const nearPutOI  = near.reduce((a,s)=>a+s.putOI, 0);
-  const nearCallOI = near.reduce((a,s)=>a+s.callOI, 0);
-  const putSkew = nearPutOI / Math.max(nearCallOI, 1);
-
-  const preDir = preMarketPct == null ? null : (preMarketPct > 0 ? 'up' : 'down');
-  const preAbs = Math.abs(preMarketPct || 0);
-
-  let score = 0;
-  if (Math.abs(vc.totalVanna) > 7)  score += 3;
-  else if (Math.abs(vc.totalVanna) > 4) score += 2;
-  else if (Math.abs(vc.totalVanna) > 2) score += 1;
-  if (putSkew > 1.7 || putSkew < 0.6) score += 2;
-  else if (putSkew > 1.4 || putSkew < 0.75) score += 1;
-  if (preAbs > 1.0) score += 1;
-
-  let reversalDir = null;
-  if (vc.totalVanna > 0 && preDir === 'up')   reversalDir = '하락';
-  if (vc.totalVanna < 0 && preDir === 'down')  reversalDir = '상승';
-
-  let level = '', message = '', detail = '';
-  const vannaSign = vc.totalVanna > 0 ? '양수' : '음수';
-  const vannaDesc = vc.totalVanna > 0
-    ? 'IV 하락 시 딜러 매수 헷지 → 개장 후 상승 지지 or 상단 IV 수축 반전'
-    : 'IV 하락 시 딜러 매도 헷지 → 개장 후 하락 압력 or 하단 IV 수축 반전';
-
-  if (score >= 5 && reversalDir) {
-    level = 'warning';
-    message = `⚠ 강한 프리마켓 반전 위험 — 개장 후 ${reversalDir} 전환 가능성`;
-    detail = `Vanna ${vannaSign}(${vc.totalVanna.toFixed(1)}M) + Put/Call Skew ${putSkew.toFixed(2)} + 프리마켓 ${preAbs.toFixed(2)}% 이동. ${vannaDesc}.`;
-  } else if (score >= 3) {
-    level = 'caution';
-    message = `⚡ 프리마켓 반전 주의${reversalDir ? ` — ${reversalDir} 방향 반전 관찰` : ''}`;
-    detail = `Vanna ${vc.totalVanna.toFixed(1)}M / Put Skew ${putSkew.toFixed(2)}. 개장 초 변동성 확대 가능.`;
-  } else {
-    level = '';
-    message = '현재 프리마켓 반전 신호 약함';
-    detail = `Vanna ${vc.totalVanna.toFixed(1)}M / Put Skew ${putSkew.toFixed(2)} — 정상 범위.`;
-  }
-
-  return { level, message, detail, score, putSkew, reversalDir };
-}
-
-function buildNarrative(d, liveCtx) {
-  liveCtx = liveCtx || {};
-  const { spotPrice, upStrikes, dnStrikes, totalGEX } = d;
-  const { livePrice=null, marketState='CLOSED', prevClose=null } = liveCtx;
-
-  const top1Dn = dnStrikes[0], top1Up = upStrikes[0];
-  if (!top1Dn && !top1Up) return null;
-
-  const regime     = totalGEX >= 0 ? '양수(+)' : '음수(-)';
-  const regimeDesc = totalGEX >= 0 ? '딜러가 변동성을 억제하는 방향(피닝)' : '딜러가 추세를 증폭하는 방향';
-  let main = `현재 전체 GEX는 <b>${regime}</b> — ${regimeDesc}으로 헷지합니다.<br>`;
-  if (top1Dn) { const d1 = ((spotPrice-top1Dn.strike)/spotPrice*100).toFixed(1); main += `하락 방향 최대 부담: <b>$${top1Dn.strike}</b>(-${d1}%)에 풋 헷지 집중.`; }
-  if (top1Up) { const d1 = ((top1Up.strike-spotPrice)/spotPrice*100).toFixed(1); main += ` 상승 방향: <b>$${top1Up.strike}</b>(+${d1}%)에 콜 헷지 부담.`; }
-
-  let progressNote = '';
-  if (livePrice !== null) {
-    const refPrice = (marketState === 'PRE' && prevClose) ? prevClose : spotPrice;
-    const livePct  = (livePrice - refPrice) / refPrice * 100;
-    const stateStr = marketState === 'PRE' ? '프리마켓' : marketState === 'POST' ? '애프터마켓' : '현재가';
-
-    const alreadyDn = top1Dn && livePrice <= top1Dn.strike;
-    const alreadyDn2 = dnStrikes[1] && livePrice <= dnStrikes[1].strike;
-    const alreadyUp  = top1Up && livePrice >= top1Up.strike;
-
-    if (alreadyDn2) {
-      progressNote = `<br><span style="color:var(--red);font-weight:600">⚠ ${stateStr} $${livePrice.toFixed(2)} (${livePct.toFixed(2)}%) — 하락 시나리오 2단계 이미 진행 중.</span> `
-        + `$${top1Dn.strike}과 $${dnStrikes[1].strike} 모두 이탈. 딜러 추가 매도 헷지 가속 상태.`;
-    } else if (alreadyDn) {
-      progressNote = `<br><span style="color:var(--orange);font-weight:600">▼ ${stateStr} $${livePrice.toFixed(2)} (${livePct.toFixed(2)}%) — 하락 시나리오 1단계 진행 중.</span> `
-        + `$${top1Dn.strike} 이탈. ${dnStrikes[1] ? `다음 관찰 구간: $${dnStrikes[1].strike}` : '추가 지지선 확인 필요'}.`;
-    } else if (alreadyUp) {
-      progressNote = `<br><span style="color:var(--green);font-weight:600">▲ ${stateStr} $${livePrice.toFixed(2)} (${livePct > 0 ? '+' : ''}${livePct.toFixed(2)}%) — 상승 시나리오 진행 중.</span> `
-        + `$${top1Up.strike} 콜 헷지 구간 진입.`;
-    } else {
-      progressNote = `<br><span style="color:var(--text2)">${stateStr} $${livePrice.toFixed(2)} (${livePct > 0 ? '+' : ''}${livePct.toFixed(2)}%) — 아직 주요 헷지 구간 미진입.</span>`;
-    }
-  }
-
-  let bear = '', bull = '';
-  if (top1Dn) {
-    const d1 = ((spotPrice-top1Dn.strike)/spotPrice*100).toFixed(1);
-    const t2  = dnStrikes[1];
-    bear = `<b>▼ 하락 심화:</b> $${top1Dn.strike}(-${d1}%) 이탈 확인 시`;
-    if (t2) { const d2=((spotPrice-t2.strike)/spotPrice*100).toFixed(1); bear += ` → $${t2.strike}(-${d2}%)까지`; }
-    bear += totalGEX < 0 ? ' 딜러 매도 동참으로 낙폭 가속 가능' : ' Positive GEX로 딜러가 일부 완충';
-    bull = `<b>▲ VIX 수축·반등:</b> $${top1Dn.strike} 지지 + VIX 하락 시 딜러 풋헷지 되감기`;
-    if (top1Up) { const d1=((top1Up.strike-spotPrice)/spotPrice*100).toFixed(1); bull += ` → $${top1Up.strike}(+${d1}%)까지 Vanna 반등 연료`; }
-  }
-
-  return { main: main + progressNote, bear, bull };
-}
-
 function render(d){
   const{strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes}=d;
   const regime=totalGEX>=0?'positive':'negative';
-
   const vc = calculateVannaCharm(strikes, spotPrice, exp);
-  const reversal = analyzePremarketReversal(d, vc, 'CLOSED', null);
 
   const alarms=[];
   const flipDist=flipZone?Math.abs(spotPrice-flipZone)/spotPrice*100:null;
@@ -1088,22 +877,22 @@ function render(d){
   const upRows=upStrikes.map((s,i)=>{
     const dist=((s.strike-spotPrice)/spotPrice*100).toFixed(2);
     const pct=Math.round(s.callHedge/maxUp*100);
-    return `<div class="hedge-row" data-strike="${s.strike}"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">+${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar up" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.callHedge/1e6).toFixed(1)}M</span></div>`;
+    return `<div class="hedge-row"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">+${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar up" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.callHedge/1e6).toFixed(1)}M</span></div>`;
   }).join('');
   const dnRows=dnStrikes.map((s,i)=>{
     const dist=((spotPrice-s.strike)/spotPrice*100).toFixed(2);
     const pct=Math.round(s.putHedge/maxDn*100);
-    return `<div class="hedge-row" data-strike="${s.strike}"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">-${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar dn" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.putHedge/1e6).toFixed(1)}M</span></div>`;
+    return `<div class="hedge-row"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">-${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar dn" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.putHedge/1e6).toFixed(1)}M</span></div>`;
   }).join('');
 
-  const narr=buildNarrative(d, {});
   const chartData=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.08);
   const tableData=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.10);
-
   const vixDisplay = vixVal ? vixVal.toFixed(2) : '—';
   const vvixDisplay = vvixVal ? vvixVal.toFixed(2) : '—';
   const vixCls = vixVal ? (vixVal>30?'danger':vixVal>20?'warn':'') : '';
   const vvixCls = vvixVal ? (vvixVal>130?'danger':vvixVal>110?'warn':'') : '';
+
+  const fixedItems = buildFixedJudgment(d, vc);
 
   document.getElementById('main-area').innerHTML=`
   <div class="card">
@@ -1119,21 +908,19 @@ function render(d){
       <div class="metric ${localGEX<0?'red':'green'}"><div class="val">${(localGEX/1e6).toFixed(1)}M</div><div class="lbl">Local GEX</div></div>
       <div class="metric ${vixCls}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
       <div class="metric ${vvixCls}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
-      <div class="metric ${vc.totalVanna>4?'red':vc.totalVanna<-4?'green':''}" id="metric-vanna"><div class="val">${vc.totalVanna.toFixed(1)}M</div><div class="lbl">Vanna Exp</div></div>
-      <div class="metric ${Math.abs(vc.totalCharm)>2?'yellow':''}" id="metric-charm"><div class="val">${vc.totalCharm.toFixed(1)}M</div><div class="lbl">Charm Exp</div></div>
+      <div class="metric" id="metric-vanna"><div class="val">${vc.totalVanna.toFixed(1)}M</div><div class="lbl">Vanna Exp</div></div>
+      <div class="metric" id="metric-charm"><div class="val">${vc.totalCharm.toFixed(1)}M</div><div class="lbl">Charm Exp</div></div>
     </div>
 
-    <div class="premarket-panel ${reversal.level}" id="premarket-panel">
-      <div class="pm-header">
-        <div class="pm-title">◈ 프리마켓 반전 탐지</div>
+    <!-- 통합 상황판단 -->
+    <div class="judgment-panel" style="margin-top:20px">
+      <div class="judgment-fixed">
+        <div class="judgment-fixed-title">시장 구조 분석 — 오늘의 핵심 구조</div>
+        <div id="judgment-fixed-content"></div>
       </div>
-      <div class="pm-message" id="pm-message">${reversal.message}</div>
-      <div class="pm-detail" id="pm-detail">${reversal.detail}</div>
-      <div class="pm-metrics">
-        <div class="pm-stat">Vanna: <b id="pm-vanna">${vc.totalVanna.toFixed(1)}M</b></div>
-        <div class="pm-stat">Charm: <b id="pm-charm">${vc.totalCharm.toFixed(1)}M</b></div>
-        <div class="pm-stat">Put Skew: <b id="pm-skew">${reversal.putSkew.toFixed(2)}</b></div>
-        <div class="pm-stat" id="pm-score-wrap">반전 점수: <b id="pm-score">${reversal.score}/6</b></div>
+      <div class="judgment-live">
+        <div class="judgment-live-title"><div class="live-dot"></div>실시간 상황 판단</div>
+        <div id="judgment-live-content"><div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">자동갱신 ON 후 활성화됩니다</span></div></div>
       </div>
     </div>
 
@@ -1144,23 +931,36 @@ function render(d){
         <div><div class="hedge-col-label" style="color:var(--red)">▼ 하락 — 풋 헷지 Top4</div>${dnRows||'<div style="color:var(--text3);font-size:13px;padding:8px">데이터 없음</div>'}</div>
       </div>
     </div>
-
-    ${narr?`<div class="narrative"><div class="narrative-title">◈ 시장 구조 분석</div><div class="narrative-body" id="narrative-body">${narr.main}</div>${narr.bear?`<div class="scenario bear" id="scenario-bear">${narr.bear}</div>`:''} ${narr.bull?`<div class="scenario bull" id="scenario-bull">${narr.bull}</div>`:''}</div>`:''}
-
-    <div class="live-judgment" id="live-judgment">
-      <div class="lj-header"><div class="lj-dot"></div><div class="lj-title">실시간 상황 판단</div></div>
-      <div class="lj-trend neutral" id="lj-trend">자동갱신 ON 후 활성화됩니다</div>
-      <div class="lj-events" id="lj-events"></div>
-    </div>
-
-    <div class="unwind-panel" id="unwind-panel">
-      <div class="unwind-title">⚡ 딜러 언와인드 감지</div>
-      <div class="unwind-status" id="unwind-content"></div>
-    </div>
   </div>
 
-  <div class="card vc-panel" id="vc-panel">
-    <div class="vc-loading">⏳ VannaCharm 데이터 로드 중...</div>
+  <!-- Greek 힘의 균형 + VannaCharm 차트 -->
+  <div class="vc-panel-wrap">
+    <div class="force-sidebar" id="force-sidebar">
+      <div class="force-title">◈ Greek 힘의 균형</div>
+      <div style="color:var(--text3);font-size:12px">자동갱신 ON 후 표시됩니다</div>
+    </div>
+    <div class="vc-chart-area">
+      <div class="vc-chart-header">
+        <div class="vc-chart-title">◈ Greek 실시간 흐름 (CBOE 기반)</div>
+        <div class="vc-tabs">
+          <button class="vc-tab active" id="vc-tab-vanna" onclick="renderVCChart('vanna')">Vanna</button>
+          <button class="vc-tab" id="vc-tab-charm" onclick="renderVCChart('charm')">Charm</button>
+          <button class="vc-tab" id="vc-tab-gex" onclick="renderVCChart('gex')">GEX</button>
+          <button class="vc-tab" id="vc-tab-vix" onclick="renderVCChart('vix')">VIX</button>
+        </div>
+      </div>
+      <div class="vc-zoom-row">
+        <span class="vc-zoom-label">확대</span>
+        <input type="range" class="vc-zoom-slider" min="1" max="6" step="0.5" value="1" oninput="updateVCZoom(this.value)">
+        <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
+        <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
+      </div>
+      <div class="vc-scroll-wrap" id="vc-scroll-wrap">
+        <div class="vc-chart-inner" id="vc-chart-inner">
+          <canvas id="vc-chart"></canvas>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -1184,13 +984,27 @@ function render(d){
     </table></div>
   </div>`;
 
+  // 알람
   const al=document.getElementById('alarm-list');
   (alarms.length?alarms:[{l:'green',m:'특이 리스크 없음'}]).forEach(a=>{
     const div=document.createElement('div'); div.className=`alarm ${a.l}`; div.textContent=a.m; al.appendChild(div);
   });
 
-  buildChart(chartData,spotPrice,flipZone,putWall,callWall);
+  // 고정 섹션 초기 렌더
+  const fixedEl = document.getElementById('judgment-fixed-content');
+  if (fixedEl) {
+    fixedEl.innerHTML = fixedItems.map(item=>`
+      <div class="judgment-item ${item.cls}">
+        <span class="ji-icon">${item.icon}</span>
+        <span class="ji-text">${item.text}</span>
+      </div>`).join('');
+    fixedEl.dataset.rendered = '1';
+  }
 
+  // 차트
+  buildChart(chartData, spotPrice, flipZone, putWall, callWall);
+
+  // 테이블
   const tbody=document.getElementById('tbl-body');
   tableData.forEach(s=>{
     const isCur=Math.abs(s.strike-spotPrice)<0.5;
@@ -1198,14 +1012,23 @@ function render(d){
     const tr=document.createElement('tr');
     if(isCur)tr.className='cur'; else if(isFlip)tr.className='flip';
     let tags='';
-    if(isCur) tags+=`<span class="tag tag-cur">현재가</span>`;
+    if(isCur)tags+=`<span class="tag tag-cur">현재가</span>`;
     if(isFlip)tags+=`<span class="tag tag-flip">Flip</span>`;
-    if(isPW)  tags+=`<span class="tag tag-pw">Put Wall</span>`;
-    if(isCW)  tags+=`<span class="tag tag-cw">Call Wall</span>`;
+    if(isPW)tags+=`<span class="tag tag-pw">Put Wall</span>`;
+    if(isCW)tags+=`<span class="tag tag-cw">Call Wall</span>`;
     const gc=s.gex>=0?'#3fb950':'#f85149';
     tr.innerHTML=`<td>$${s.strike}${tags}</td><td>${s.callOI.toLocaleString()}</td><td>${s.putOI.toLocaleString()}</td><td style="color:${gc};font-weight:600">${s.gex>=0?'+':''}${(s.gex/1e6).toFixed(2)}</td><td>${s.callVol.toLocaleString()}</td><td>${s.putVol.toLocaleString()}</td><td>${s.iv>0?(s.iv*100).toFixed(1)+'%':'—'}</td>`;
     tbody.appendChild(tr);
   });
+
+  // VannaCharm 차트 초기 렌더
+  renderVCChart('vanna');
+}
+
+function updateVCZoom(val) {
+  vcZoom = parseFloat(val);
+  document.getElementById('vc-zoom-val').textContent = val + '×';
+  renderVCChart(vcActiveTab);
 }
 
 function buildChart(chartData, sp, flipZone, putWall, callWall) {
@@ -1215,58 +1038,34 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
   const baseW=wrap.clientWidth||window.innerWidth-56;
   inner.style.width=Math.max(baseW, baseW*zoomLevel)+'px';
 
-  const hoverDotPlugin = {
-    id:'hoverDot',
-    afterDraw(chart){
-      const idx=chart._hoveredIdx;
-      if(idx===undefined||idx===null) return;
-      const ds=chart.data.datasets[2];
-      const meta=chart.getDatasetMeta(2);
-      if(!meta||!meta.data[idx]) return;
-      const pt=meta.data[idx];
-      const ctx=chart.ctx;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(pt.x,pt.y,6,0,Math.PI*2);
-      ctx.fillStyle='#f85149';
-      ctx.strokeStyle='#fff';
-      ctx.lineWidth=1.5;
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
-  };
-
   chartInst=new Chart(document.getElementById('mainchart'),{
     data:{
-      labels:chartData.map(s=>{ return s.strike%5===0?'$'+s.strike:''; }),
+      labels:chartData.map(s=>s.strike%5===0?'$'+s.strike:''),
       datasets:[
-        {type:'bar', label:'Call OI', data:chartData.map(s=>s.callOI),  backgroundColor:'rgba(88,166,255,.4)',yAxisID:'y'},
-        {type:'bar', label:'Put OI',  data:chartData.map(s=>-s.putOI),  backgroundColor:'rgba(248,81,73,.4)', yAxisID:'y'},
-        {type:'line',label:'GEX(M)',  data:chartData.map(s=>+(s.gex/1e6).toFixed(3)),
+        {type:'bar',label:'Call OI',data:chartData.map(s=>s.callOI),backgroundColor:'rgba(88,166,255,.4)',yAxisID:'y'},
+        {type:'bar',label:'Put OI',data:chartData.map(s=>-s.putOI),backgroundColor:'rgba(248,81,73,.4)',yAxisID:'y'},
+        {type:'line',label:'GEX(M)',data:chartData.map(s=>+(s.gex/1e6).toFixed(3)),
          borderColor:'#f0883e',backgroundColor:'transparent',
-         pointRadius:3,pointBackgroundColor:'#f0883e',pointHoverBackgroundColor:'#f85149',
-         pointHoverRadius:7,pointHoverBorderColor:'#fff',pointHoverBorderWidth:1.5,
+         pointRadius:3,pointBackgroundColor:'#f0883e',
          borderWidth:2.5,tension:.3,yAxisID:'y2'},
       ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      onHover:(e,els)=>{ if(chartInst) chartInst._hoveredIdx=els.length?els[0].index:null; },
       plugins:{
         legend:{display:true,position:'top',align:'start',labels:{color:'#8b949e',font:{size:12},boxWidth:12,padding:16}},
         tooltip:{
           backgroundColor:'#161b22',borderColor:'#30363d',borderWidth:1,
           titleColor:'#e6edf3',bodyColor:'#8b949e',padding:12,
           callbacks:{
-            title: items=>'$'+chartData[items[0].dataIndex]?.strike,
-            afterBody: items=>{
+            title:items=>'$'+chartData[items[0].dataIndex]?.strike,
+            afterBody:items=>{
               const s=chartData[items[0].dataIndex]; if(!s) return [];
               const lines=[];
               if(s.iv>0) lines.push(`IV: ${(s.iv*100).toFixed(1)}%`);
               if(s.strike===flipZone) lines.push('⚡ Flip Zone');
-              if(s.strike===putWall)  lines.push('🔴 Put Wall');
+              if(s.strike===putWall) lines.push('🔴 Put Wall');
               if(s.strike===callWall) lines.push('🟢 Call Wall');
               return lines;
             }
@@ -1275,11 +1074,10 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
       },
       scales:{
         x:{ticks:{color:'#6e7681',font:{size:11},autoSkip:false,maxRotation:45},grid:{color:'rgba(48,54,61,.7)'}},
-        y:{position:'left', ticks:{color:'#6e7681',font:{size:11},callback:v=>v>=1000?Math.round(v/1000)+'K':v}, grid:{color:'rgba(48,54,61,.7)'}},
+        y:{position:'left',ticks:{color:'#6e7681',font:{size:11},callback:v=>v>=1000?Math.round(v/1000)+'K':v},grid:{color:'rgba(48,54,61,.7)'}},
         y2:{position:'right',ticks:{color:'#f0883e',font:{size:11},callback:v=>v+'M'},grid:{drawOnChartArea:false}},
       }
-    },
-    plugins:[hoverDotPlugin]
+    }
   });
 }
 
