@@ -114,7 +114,16 @@ select,button{font-family:var(--font);font-size:14px}
 .live-event.le-good .le-msg{color:#7ee787}
 .live-event.le-info .le-msg{color:#9ecbff}
 
-/* ── Greek 힘의 균형 패널 ── */
+/* ── Greek 메트릭 카드 ── */
+.greek-metric-card{flex:1;min-width:130px;padding:10px 14px;background:var(--bg3);border-radius:8px;border:1px solid var(--border)}
+.gmc-header{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.gmc-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.gmc-name{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.07em;flex:1}
+.gmc-signal{font-size:16px;line-height:1}
+.gmc-value{font-size:18px;font-weight:700;font-family:var(--mono);letter-spacing:-.5px;margin-bottom:3px}
+.gmc-desc{font-size:11px;color:var(--text3);line-height:1.4}
+
+/* ── Greek 힘의 균형 패널 (레거시, 숨김) ── */
 .vc-panel-wrap{display:flex;gap:0;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2)}
 .force-sidebar{width:220px;flex-shrink:0;padding:18px 16px;background:var(--bg3);border-right:1px solid var(--border)}
 .force-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:16px}
@@ -192,7 +201,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.8 · CBOE</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.9 · CBOE</div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -341,76 +350,79 @@ function getBarColor(pct) {
   return 'var(--green)';
 }
 
-function renderForceSidebar(force) {
+function renderGreekMetrics(force) {
   const { vanna, charm, gex, flipDist, flipDanger } = force;
 
-  const vannaLabel = vanna.dir === 'sell' ? '매도 압력' : '매수 압력';
-  const vannaActiveLabel = vanna.active
-    ? `<span style="color:var(--red);font-weight:700">활성화 중</span>`
-    : `<span style="color:var(--text3)">대기 중 (VIX 변화 필요)</span>`;
+  // ── Vanna 신호등 ──
+  // 5분 전 대비 절대값 변화로 판단
+  const vannaHistory = vcHistory.slice(-5).map(h => Math.abs(h.vanna)).filter(v => v > 0);
+  let vannaSignal = '⚪'; // 데이터 부족
+  let vannaArrow = '';
+  if (vannaHistory.length >= 2) {
+    const prev = vannaHistory[0];
+    const curr = vannaHistory[vannaHistory.length - 1];
+    const chg = (curr - prev) / prev * 100;
+    if (chg > 5)       { vannaSignal = '🔴'; vannaArrow = ' ↑'; } // 강해짐 (더 위험)
+    else if (chg < -5) { vannaSignal = '🟢'; vannaArrow = ' ↓'; } // 약해짐 (완화)
+    else               { vannaSignal = '🟡'; vannaArrow = ' →'; } // 비슷
+  }
 
-  const charmLabel = charm.dir === 'sell' ? '매도 드리프트' : '매수 드리프트';
-  const charmActiveLabel = charm.active
-    ? `<span style="color:var(--green);font-weight:700">활성화 중</span>`
-    : `<span style="color:var(--text3)">오후 1시 이후 활성</span>`;
+  // ── Charm 신호등 ──
+  // 오후 1시(ET) 이후 활성화, 음수(매수드리프트)면 초록
+  const charmSignal = charm.active
+    ? (charm.dir === 'buy' ? '🟢' : '🔴')
+    : '⚪';
+  const charmArrow = charm.active ? ' 활성' : ' 대기';
 
-  const gexLabel = gex.dir === 'pin' ? '피닝 (변동성 억제)' : '추세 증폭';
+  // ── GEX 신호등 ──
+  const gexSignal = gex.dir === 'pin' ? '🟢' : '🔴';
+  const gexArrow = gex.dir === 'pin' ? ' 피닝' : ' 추세증폭';
 
-  // 지배적 힘 판단
+  // ── Vanna 값 색상 ──
+  const vannaColor = vanna.dir === 'sell' ? 'var(--red)' : 'var(--green)';
+  const charmColor = charm.dir === 'buy'  ? 'var(--green)' : 'var(--red)';
+  const gexColor   = gex.dir === 'pin'   ? 'var(--green)' : 'var(--red)';
+
+  // ── 지배 Greek 판단 ──
   let dominant = '';
-  if (gex.strength > 60) dominant = `<b>GEX 피닝</b>이 지배적 — 큰 방향성 어렵습니다`;
-  else if (vanna.active && vanna.strength > 50) dominant = `<b>Vanna ${vannaLabel}</b>이 지배적`;
-  else if (charm.active && charm.strength > 40) dominant = `<b>Charm ${charmLabel}</b>이 작동 중`;
-  else dominant = `뚜렷한 지배 Greek 없음 — 혼전 구간`;
+  const vannaAbs = Math.abs(vanna.value);
+  const charmAbs = Math.abs(charm.value);
+  if (gex.dir === 'pin' && Math.abs(gex.value) > 500)
+    dominant = 'GEX 피닝 지배 — 큰 방향성 어려움';
+  else if (vanna.active && vannaAbs > charmAbs * 5)
+    dominant = `Vanna ${vanna.dir === 'sell' ? '매도' : '매수'} 압력 지배`;
+  else if (charm.active && charmAbs > 200)
+    dominant = `Charm ${charm.dir === 'buy' ? '매수' : '매도'} 드리프트 작동`;
+  else
+    dominant = '뚜렷한 지배 Greek 없음';
 
-  const el = document.getElementById('force-sidebar');
-  if (!el) return;
+  // ── DOM 업데이트 ──
+  const set = (id, val) => { const el=document.getElementById(id); if(el) el.innerHTML=val; };
 
-  el.innerHTML = `
-    <div class="force-title">◈ Greek 힘의 균형</div>
+  set('gmc-vanna-signal', vannaSignal);
+  set('gmc-vanna-val', `<span style="color:${vannaColor}">${vanna.value.toFixed(0)}M</span>`);
+  set('gmc-vanna-desc', `${vanna.dir === 'sell' ? 'VIX↑ 매도압력' : 'VIX↑ 매수압력'}${vannaArrow}${vanna.vixChange !== 0 ? ` · VIX ${vanna.vixChange>0?'+':''}${vanna.vixChange.toFixed(1)}%` : ''}`);
 
-    <div class="force-item">
-      <div class="force-label">
-        <span class="force-name" style="color:#bc8cff">● Vanna</span>
-        <span class="force-pct" style="color:#bc8cff">${vanna.strength.toFixed(0)}%</span>
-      </div>
-      <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${vanna.strength}%;background:#bc8cff;opacity:${0.4 + vanna.strength/200}"></div>
-      </div>
-      <div class="force-status">${vannaLabel} / ${vannaActiveLabel}</div>
-      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${vanna.value.toFixed(0)}M ${vanna.vixChange !== 0 ? `(VIX ${vanna.vixChange>0?'+':''}${vanna.vixChange.toFixed(1)}%)` : ''}</div>
-    </div>
+  set('gmc-charm-signal', charmSignal);
+  set('gmc-charm-val', `<span style="color:${charmColor}">${charm.value.toFixed(0)}M</span>`);
+  set('gmc-charm-desc', `${charm.dir === 'buy' ? '매수 드리프트' : '매도 드리프트'}${charmArrow}`);
 
-    <div class="force-item">
-      <div class="force-label">
-        <span class="force-name" style="color:#58a6ff">● Charm</span>
-        <span class="force-pct" style="color:#58a6ff">${charm.strength.toFixed(0)}%</span>
-      </div>
-      <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${charm.strength}%;background:#58a6ff;opacity:${0.4 + charm.strength/200}"></div>
-      </div>
-      <div class="force-status">${charmLabel} / ${charmActiveLabel}</div>
-      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${charm.value.toFixed(0)}M</div>
-    </div>
+  set('gmc-gex-signal', gexSignal);
+  set('gmc-gex-val', `<span style="color:${gexColor}">${gex.value > 0 ? '+' : ''}${gex.value.toFixed(0)}M</span>`);
+  set('gmc-gex-desc', `로컬 GEX${gexArrow}`);
 
-    <div class="force-item">
-      <div class="force-label">
-        <span class="force-name" style="color:#3fb950">● GEX</span>
-        <span class="force-pct" style="color:${gex.dir==='pin'?'#3fb950':'#f85149'}">${gex.strength.toFixed(0)}%</span>
-      </div>
-      <div class="force-bar-bg">
-        <div class="force-bar-fill" style="width:${gex.strength}%;background:${gex.dir==='pin'?'#3fb950':'#f85149'}"></div>
-      </div>
-      <div class="force-status">${gexLabel}</div>
-      <div class="force-status" style="margin-top:2px;font-family:var(--mono)">${gex.value>0?'+':''}${gex.value.toFixed(0)}M</div>
-    </div>
+  set('gmc-dominant-val', dominant);
+  set('gmc-flip-desc', flipZone
+    ? (flipDanger
+      ? `<span style="color:var(--red);font-weight:600">⚡ Flip Zone ${flipDist.toFixed(1)}% 극근접</span>`
+      : `Flip Zone ${flipDist.toFixed(1)}% 하방`)
+    : 'Flip Zone 없음'
+  );
+}
 
-    <div class="force-divider"></div>
-    <div class="force-summary">
-      ${dominant}
-      ${flipDanger ? `<br><br><span style="color:var(--red);font-weight:600">⚠ Flip Zone ${flipDist.toFixed(1)}% 근접</span>` : ''}
-    </div>
-  `;
+// 레거시 호환용
+function renderForceSidebar(force) {
+  renderGreekMetrics(force);
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -451,13 +463,11 @@ function buildTimeAxis() {
 
 // vcHistory 항목을 시간축 인덱스로 변환
 function getTimeIndex(timeStr) {
-  // timeStr: "오전 08:43:02" or "오후 02:15:30" (ko-KR format)
+  // timeStr: "08:43:02" (en-GB 24시간 형식, KST)
   try {
-    const now = new Date();
-    const kstStr = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' });
-    const parsed = new Date(`${kstStr} ${timeStr}`);
-    const kstH = parsed.getHours();
-    const kstM = parsed.getMinutes();
+    const parts = timeStr.split(':');
+    const kstH = parseInt(parts[0]);
+    const kstM = parseInt(parts[1]);
     const preHourKST = isEDT() ? 17 : 18;
     const idx = (kstH * 60 + kstM) - (preHourKST * 60);
     return Math.max(0, Math.min(719, idx));
@@ -875,7 +885,7 @@ async function autoRefresh() {
     vvixVal = vixJson.VVIX?.price;
 
     const now = new Date();
-    const timeStr = now.toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const timeStr = now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit', timeZone:'Asia/Seoul'});
 
     priceHistory.push({ time:timeStr, price:newSpot, marketState, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
@@ -1127,13 +1137,47 @@ function render(d){
     </div>
   </div>
 
-  <!-- Greek 힘의 균형 + VannaCharm 차트 -->
-  <div class="vc-panel-wrap">
-    <div class="force-sidebar" id="force-sidebar">
-      <div class="force-title">◈ Greek 힘의 균형</div>
-      <div style="color:var(--text3);font-size:12px">자동갱신 ON 후 표시됩니다</div>
+  <!-- Greek 힘의 균형 메트릭 카드 + VannaCharm 차트 -->
+  <div class="vc-panel-wrap" style="flex-direction:column">
+    <!-- Greek 메트릭 카드 행 -->
+    <div id="greek-metrics-row" style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 0;border-bottom:1px solid var(--border)">
+      <div class="greek-metric-card" id="gmc-vanna">
+        <div class="gmc-header">
+          <span class="gmc-dot" style="background:#bc8cff"></span>
+          <span class="gmc-name">Vanna</span>
+          <span class="gmc-signal" id="gmc-vanna-signal">—</span>
+        </div>
+        <div class="gmc-value" id="gmc-vanna-val">—</div>
+        <div class="gmc-desc" id="gmc-vanna-desc">자동갱신 후 표시</div>
+      </div>
+      <div class="greek-metric-card" id="gmc-charm">
+        <div class="gmc-header">
+          <span class="gmc-dot" style="background:#58a6ff"></span>
+          <span class="gmc-name">Charm</span>
+          <span class="gmc-signal" id="gmc-charm-signal">—</span>
+        </div>
+        <div class="gmc-value" id="gmc-charm-val">—</div>
+        <div class="gmc-desc" id="gmc-charm-desc">자동갱신 후 표시</div>
+      </div>
+      <div class="greek-metric-card" id="gmc-gex">
+        <div class="gmc-header">
+          <span class="gmc-dot" style="background:#3fb950"></span>
+          <span class="gmc-name">GEX</span>
+          <span class="gmc-signal" id="gmc-gex-signal">—</span>
+        </div>
+        <div class="gmc-value" id="gmc-gex-val">—</div>
+        <div class="gmc-desc" id="gmc-gex-desc">자동갱신 후 표시</div>
+      </div>
+      <div class="greek-metric-card" style="flex:1;min-width:160px" id="gmc-dominant">
+        <div class="gmc-header">
+          <span class="gmc-name" style="color:var(--text2)">◈ 지배 Greek</span>
+        </div>
+        <div class="gmc-value" id="gmc-dominant-val" style="font-size:13px">—</div>
+        <div class="gmc-desc" id="gmc-flip-desc">—</div>
+      </div>
     </div>
-    <div class="vc-chart-area">
+    <!-- VannaCharm 차트 (전체 너비) -->
+    <div class="vc-chart-area" style="width:100%;border-right:none">
       <div class="vc-chart-header">
         <div class="vc-chart-title">◈ Greek 실시간 흐름 (CBOE 기반)</div>
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
