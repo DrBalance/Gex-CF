@@ -51,10 +51,15 @@ async function handleOptions(url, env) {
   const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
   const isMarket = estHour >= 9.5 && estHour < 16;
 
-  // 장중 30초 캐시, 그 외 5분 캐시
-  const ttl = isMarket ? 30 : 300;
+  // 장중 5분 캐시, 장외 1시간 캐시
+  // → 같은 5분 내 재로드/만기변경 시 크레딧 0 소모
+  const ttl = isMarket ? 300 : 3600;
   const todayStr = nowEST.toLocaleDateString('en-CA');
-  const cacheKey = `md2:options:${mdSymbol}:${todayStr}`;
+
+  // 만기 파라미터 포함해서 캐시 키 분리
+  // → 같은 만기는 캐시에서 바로 반환
+  const expParam = url.searchParams.get('expiration') || 'all';
+  const cacheKey = `md3:options:${mdSymbol}:${todayStr}:exp=${expParam}`;
 
   try {
     const data = await withCache(env, cacheKey, ttl, async () => {
