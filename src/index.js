@@ -78,12 +78,11 @@ async function handleOptions(url, env) {
 
       // ── Step 2: 옵션 체인 조회 ──
       // expiration=all: 전체 만기
-      // feed=cached: 전체 체인을 1크레딧으로 조회 (Market Data App Cached Mode)
-      //   → 업데이트 주기는 서버 캐시 기준 (약 1~5분)
-      //   → 1분마다 갱신해도 하루 ~400크레딧만 소모
+      // strikeLimit=40: 현재가 기준 ±40 스트라이크 (크레딧 절약)
+      // feed=cached는 Trader 플랜 미지원 → 제거
       const chainUrl = `https://api.marketdata.app/v1/options/chain/${mdSymbol}/` +
         `?expiration=all` +
-        `&feed=cached`;
+        `&strikeLimit=40`;
 
       const chainR = await fetch(chainUrl, {
         headers: {
