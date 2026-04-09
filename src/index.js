@@ -61,11 +61,15 @@ async function handleOptionsCBOE(url, env, symbol) {
   const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
   const isMarket = estHour >= 9.5 && estHour < 16;
-  const ttl = isMarket ? 300 : 3600; // 장중 5분, 장외 1시간
+  const ttl = isMarket ? 300 : 3600;
 
-  const expParam = url.searchParams.get('expiration') || 'all';
+  // EST 기준 오늘 날짜 키 (yyMMdd 형식: "260409")
+  const estYear  = String(nowEST.getFullYear()).slice(2);
+  const estMonth = String(nowEST.getMonth() + 1).padStart(2, '0');
+  const estDay   = String(nowEST.getDate()).padStart(2, '0');
+  const todayKey = `${estYear}${estMonth}${estDay}`;
   const todayStr = nowEST.toLocaleDateString('en-CA');
-  const cacheKey = `cboe2:${symbol}:${todayStr}:exp=${expParam}`;
+  const cacheKey = `cboe3:${symbol}:${todayStr}`;
 
   try {
     const data = await withCache(env, cacheKey, ttl, async () => {
@@ -82,8 +86,24 @@ async function handleOptionsCBOE(url, env, symbol) {
       );
       if (!r.ok) throw new Error(`CBOE ${r.status}`);
       const cboeJson = await r.json();
+
+      // ── 만료된 만기 옵션 제거 (오늘 이후만 유지) ──
+      const raw = cboeJson.data?.options || cboeJson.options || [];
+      const filtered = raw.filter(o => {
+        const m = (o.option || '').trim().match(/(\d{6})[CP]/);
+        return m && m[1] >= todayKey;
+      });
+
+      // current_price 추출
+      const currentPrice = cboeJson.data?.current_price
+        || cboeJson.current_price
+        || 0;
+
       return {
-        ...cboeJson,
+        data: {
+          current_price: currentPrice,
+          options: filtered,
+        },
         source: 'cboe',
         timestamp: new Date().toISOString(),
       };
