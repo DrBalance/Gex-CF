@@ -479,10 +479,16 @@ function renderVCChart() {
   const inner = document.getElementById('vc-chart-inner');
   if (!wrap || !inner) return;
 
-  // canvas 복원
-  if (!document.getElementById('vc-chart')) {
-    inner.innerHTML = '<canvas id="vc-chart"></canvas>';
+  // vcHistory가 비어있으면 대기 메시지 표시 (차트 그리지 않음)
+  if (vcHistory.length === 0) {
+    if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
+    inner.innerHTML = '<div class="vc-empty" style="padding:60px 0;text-align:center;color:var(--text3);font-size:13px">자동갱신 후 Greek 흐름이 여기에 표시됩니다<br><span style="font-size:11px;opacity:.6">1분 주기로 데이터 누적</span></div>';
+    return;
   }
+
+  // canvas 항상 재생성 (destroy 후 오염 방지)
+  if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
+  inner.innerHTML = '<canvas id="vc-chart"></canvas>';
 
   const baseW = wrap.clientWidth || 600;
   inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
@@ -869,9 +875,11 @@ async function autoRefresh() {
     setStatus('updating');
     const sym = document.getElementById('sym-select').value.replace('_','');
 
-    const [priceJson, vixJson] = await Promise.all([
+    // Greeks는 서버에서 계산 (모든 유저 동일값 보장)
+    const [priceJson, vixJson, greeksJson] = await Promise.all([
       fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
       fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
+      fetch(`${PROXY}/api/greeks?symbol=${sym==='SPX'?'SPY':sym}&exp=${currentD.exp}`).then(r=>r.json()),
     ]);
 
     const newSpot = priceJson.price;
@@ -888,8 +896,17 @@ async function autoRefresh() {
     priceHistory.push({ time:timeStr, price:newSpot, marketState, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
 
-    // Vanna/Charm 재계산
-    const vc = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
+    // Vanna/Charm: 서버 계산값 우선, 실패 시 클라이언트 폴백
+    let vc;
+    if (greeksJson && !greeksJson.error) {
+      vc = { totalVanna: greeksJson.vanna, totalCharm: greeksJson.charm };
+      // 서버에서 계산된 GEX/FlipZone도 업데이트
+      if (greeksJson.localGEX !== undefined) currentD.localGEX = greeksJson.localGEX * 1e6;
+      if (greeksJson.flipZone !== undefined) currentD.flipZone = greeksJson.flipZone;
+    } else {
+      // 폴백: 클라이언트 계산
+      vc = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
+    }
 
     // VannaCharm 히스토리 누적
     vcHistory.push({
@@ -1257,8 +1274,8 @@ function render(d){
     tbody.appendChild(tr);
   });
 
-  // VannaCharm 차트 초기 렌더
-  renderVCChart();
+  // VannaCharm 차트: autoRefresh() 완료 후 자동 렌더 (vcHistory 빈 상태에서 호출 불필요)
+  renderVCChart(); // 대기 메시지 표시용
 }
 
 function updateVCZoom(val) {
