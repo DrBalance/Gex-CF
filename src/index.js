@@ -1,6 +1,9 @@
-// GEX Dashboard - Cloudflare Workers
-// 엔드포인트: /api/options, /api/price, /api/vix
-// KV 캐싱으로 3명 동시 접속 시에도 외부 API 중복 호출 없음
+// GEX Dashboard - Cloudflare Workers v2
+// 엔드포인트:
+//   /api/options   → Market Data App 실시간 옵션 체인 (CBOE 폴백)
+//   /api/price     → Yahoo Finance 현재가
+//   /api/vix       → Yahoo Finance VIX/VVIX
+//   /api/vannacharm → VannaCharm API (기존 유지)
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -17,16 +20,13 @@ function json(data, status = 200, extra = {}) {
 
 // ── KV 캐시 헬퍼 ──
 async function withCache(env, key, ttl, fetcher) {
-  // KV에서 캐시 확인
   try {
     const cached = await env.CACHE.get(key);
     if (cached) return JSON.parse(cached);
   } catch (_) {}
 
-  // 캐시 없으면 실제 fetch
   const data = await fetcher();
 
-  // 결과 저장 (ttl 초)
   try {
     await env.CACHE.put(key, JSON.stringify(data), { expirationTtl: ttl });
   } catch (_) {}
@@ -34,18 +34,130 @@ async function withCache(env, key, ttl, fetcher) {
   return data;
 }
 
-// ── /api/options ──
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// /api/options — Market Data App 실시간 옵션 체인
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function handleOptions(url, env) {
   const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
   if (!/^[\^_A-Z0-9]{1,10}$/.test(symbol)) {
     return json({ error: 'Invalid symbol' }, 400);
   }
 
-  const cacheKey = `options:${symbol}`;
+  // CBOE 심볼 처리 (_SPX → SPX)
+  const mdSymbol = symbol.replace('_', '');
+
+  // EST 기준 현재 시각
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+  const isMarket = estHour >= 9.5 && estHour < 16;
+
+  // 장중 30초 캐시, 그 외 5분 캐시
+  const ttl = isMarket ? 30 : 300;
+  const todayStr = nowEST.toLocaleDateString('en-CA');
+  const cacheKey = `md2:options:${mdSymbol}:${todayStr}`;
 
   try {
-    const data = await withCache(env, cacheKey, 30, async () => {
-      const upstream = await fetch(
+    const data = await withCache(env, cacheKey, ttl, async () => {
+
+      // ── Step 1: 현재가 조회 ──
+      const priceR = await fetch(
+        `https://api.marketdata.app/v1/stocks/quotes/${mdSymbol}/`,
+        {
+          headers: {
+            'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(8000),
+        }
+      );
+      let currentPrice = 0;
+      if (priceR.ok) {
+        const priceJson = await priceR.json();
+        currentPrice = priceJson.last?.[0] ?? priceJson.mid?.[0] ?? 0;
+      }
+
+      // ── Step 2: 옵션 체인 조회 ──
+      // expiration=all: 전체 만기
+      // feed=cached: 전체 체인을 1크레딧으로 조회 (Market Data App Cached Mode)
+      //   → 업데이트 주기는 서버 캐시 기준 (약 1~5분)
+      //   → 1분마다 갱신해도 하루 ~400크레딧만 소모
+      const chainUrl = `https://api.marketdata.app/v1/options/chain/${mdSymbol}/` +
+        `?expiration=all` +
+        `&feed=cached`;
+
+      const chainR = await fetch(chainUrl, {
+        headers: {
+          'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`,
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(20000),
+      });
+
+      if (!chainR.ok) {
+        const errText = await chainR.text();
+        throw new Error(`MarketData ${chainR.status}: ${errText}`);
+      }
+
+      const mdJson = await chainR.json();
+
+      if (mdJson.s !== 'ok') {
+        throw new Error(`MarketData API error: ${mdJson.errmsg || JSON.stringify(mdJson)}`);
+      }
+
+      // ── columnar 응답 → 옵션 배열 변환 ──
+      const {
+        optionSymbol, expiration, strike, side,
+        bid, ask, last, volume, openInterest,
+        iv, delta, gamma, theta, vega
+      } = mdJson;
+
+      const count = optionSymbol?.length || 0;
+      if (count === 0) throw new Error('EMPTY');
+
+      const options = [];
+      for (let i = 0; i < count; i++) {
+        // Market Data App은 OCC 심볼을 그대로 반환
+        // 예: SPY260409C00675000
+        options.push({
+          option:        optionSymbol?.[i]   || '',
+          iv:            iv?.[i]             || 0,
+          gamma:         gamma?.[i]          || 0,
+          delta:         delta?.[i]          || 0,
+          theta:         theta?.[i]          || 0,
+          vega:          vega?.[i]           || 0,
+          open_interest: openInterest?.[i]   || 0,
+          volume:        volume?.[i]         || 0,
+          bid:           bid?.[i]            || 0,
+          ask:           ask?.[i]            || 0,
+          last:          last?.[i]           || 0,
+        });
+      }
+
+      return {
+        data: {
+          current_price: currentPrice,
+          options,
+        },
+        timestamp: new Date().toISOString(),
+        source: 'marketdata.app',
+      };
+    });
+
+    return json(data);
+
+  } catch (err) {
+    // Market Data App 실패 시 CBOE 폴백
+    console.error(`MarketData failed (${err.message}), falling back to CBOE`);
+    return handleOptionsCBOE(url, env, symbol);
+  }
+}
+
+// ── CBOE 폴백 ──
+async function handleOptionsCBOE(url, env, symbol) {
+  const cacheKey = `cboe:${symbol}`;
+  try {
+    const data = await withCache(env, cacheKey, 60, async () => {
+      const r = await fetch(
         `https://cdn.cboe.com/api/global/delayed_quotes/options/${symbol}.json`,
         {
           headers: {
@@ -56,13 +168,17 @@ async function handleOptions(url, env) {
           signal: AbortSignal.timeout(10000),
         }
       );
-      if (!upstream.ok) throw new Error(`CBOE ${upstream.status}`);
-      return upstream.json();
+      if (!r.ok) throw new Error(`CBOE ${r.status}`);
+      const cboeJson = await r.json();
+      return {
+        ...cboeJson,
+        source: 'cboe_fallback',
+        timestamp: new Date().toISOString(),
+      };
     });
-
     return json(data);
   } catch (err) {
-    return json({ error: err.message, symbol }, 500);
+    return json({ error: err.message, symbol, source: 'error' }, 500);
   }
 }
 
@@ -84,8 +200,8 @@ async function handlePrice(url, env) {
           signal: AbortSignal.timeout(8000),
         }
       );
-      const json_ = await r.json();
-      const meta = json_?.chart?.result?.[0]?.meta;
+      const j = await r.json();
+      const meta = j?.chart?.result?.[0]?.meta;
       if (!meta) throw new Error('No meta in response');
 
       const marketState = meta.marketState;
@@ -99,18 +215,15 @@ async function handlePrice(url, env) {
       }
 
       return {
-        symbol,
-        price,
-        priceLabel,
-        marketState,
-        regularPrice:  meta.regularMarketPrice,
-        prevClose:     meta.chartPreviousClose,
-        preMarketPrice:  meta.preMarketPrice  ?? null,
-        postMarketPrice: meta.postMarketPrice ?? null,
+        symbol, price, priceLabel, marketState,
+        regularPrice:            meta.regularMarketPrice,
+        prevClose:               meta.chartPreviousClose,
+        preMarketPrice:          meta.preMarketPrice          ?? null,
+        postMarketPrice:         meta.postMarketPrice         ?? null,
         preMarketChangePercent:  meta.preMarketChangePercent  ?? null,
         postMarketChangePercent: meta.postMarketChangePercent ?? null,
-        preMarketTime:  meta.preMarketTime  ? new Date(meta.preMarketTime  * 1000).toISOString() : null,
-        postMarketTime: meta.postMarketTime ? new Date(meta.postMarketTime * 1000).toISOString() : null,
+        preMarketTime:           meta.preMarketTime  ? new Date(meta.preMarketTime  * 1000).toISOString() : null,
+        postMarketTime:          meta.postMarketTime ? new Date(meta.postMarketTime * 1000).toISOString() : null,
       };
     });
 
@@ -139,8 +252,8 @@ async function handleVix(url, env) {
               signal: AbortSignal.timeout(8000),
             }
           );
-          const json_ = await r.json();
-          const meta = json_?.chart?.result?.[0]?.meta;
+          const j = await r.json();
+          const meta = j?.chart?.result?.[0]?.meta;
           if (!meta) throw new Error('No meta');
           results[sym] = {
             price: meta.regularMarketPrice,
@@ -162,29 +275,21 @@ async function handleVix(url, env) {
   }
 }
 
-// ── /api/vannacharm ──
-// VannaCharm Premium API 프록시 + KV 캐싱
-// ?symbol=SPY&date=2026-04-07 (date 생략 시 오늘)
+// ── /api/vannacharm (기존 유지) ──
 async function handleVannaCharm(url, env) {
   const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
-
-  // 오늘 날짜 EST 기준
-  const now = new Date();
-  const estDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const yyyy = estDate.getFullYear();
-  const mm   = String(estDate.getMonth() + 1).padStart(2, '0');
-  const dd   = String(estDate.getDate()).padStart(2, '0');
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const yyyy = nowEST.getFullYear();
+  const mm   = String(nowEST.getMonth() + 1).padStart(2, '0');
+  const dd   = String(nowEST.getDate()).padStart(2, '0');
   const tradeDate = url.searchParams.get('date') || `${yyyy}-${mm}-${dd}`;
 
-  // 마켓 세션 판단
-  const estHour = estDate.getHours() + estDate.getMinutes() / 60;
-  let marketSession;
-  if      (estHour >= 4   && estHour < 9.5)  marketSession = 'PRE';
-  else if (estHour >= 9.5 && estHour < 16)   marketSession = 'REGULAR';
-  else if (estHour >= 16  && estHour < 20)   marketSession = 'POST';
-  else                                        marketSession = 'CLOSED';
+  const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+  const marketSession =
+    estHour >= 9.5 && estHour < 16  ? 'REGULAR' :
+    estHour >= 4   && estHour < 9.5 ? 'PRE'     :
+    estHour >= 16  && estHour < 20  ? 'POST'    : 'CLOSED';
 
-  // 장중 1분 캐시, 그 외 5분 캐시
   const ttl = marketSession === 'REGULAR' ? 60 : 300;
   const cacheKey = `vc:${symbol}:${tradeDate}`;
 
@@ -192,17 +297,13 @@ async function handleVannaCharm(url, env) {
     const data = await withCache(env, cacheKey, ttl, async () => {
       const vcUrl = `https://vannacharm.com/api/getMinuteSurfaces?symbol=${symbol}&trade_date=${tradeDate}`;
       const r = await fetch(vcUrl, {
-        headers: {
-          'X-API-Key': env.VANNACHARM_KEY,
-          'Accept': 'application/json',
-        },
+        headers: { 'X-API-Key': env.VANNACHARM_KEY, 'Accept': 'application/json' },
         signal: AbortSignal.timeout(15000),
       });
       if (!r.ok) throw new Error(`VannaCharm ${r.status}: ${await r.text()}`);
-      const json = await r.json();
-      // 빈 데이터는 캐시하지 않음 — 장 시작 후 재시도 가능하도록
-      if (!json.data || json.data.length === 0) throw new Error('EMPTY');
-      return json;
+      const j = await r.json();
+      if (!j.data || j.data.length === 0) throw new Error('EMPTY');
+      return j;
     });
 
     return json({ ...data, _meta: { symbol, tradeDate, marketSession, cachedAt: new Date().toISOString() } });
@@ -219,7 +320,6 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: CORS });
     }
