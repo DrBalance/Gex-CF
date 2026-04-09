@@ -77,12 +77,12 @@ async function handleOptions(url, env) {
       }
 
       // ── Step 2: 옵션 체인 조회 ──
-      // expiration=all: 전체 만기
-      // strikeLimit=60: 현재가 기준 ±60 스트라이크
-      //   → 1회 ~120 크레딧 × 390회 = 46,800 크레딧/일 (10만개 이내)
+      // expiration=all: 전체 만기, 전체 스트라이크
+      // strikeLimit 없음 → Flip Zone, Put/Call Wall 정확하게 계산
+      // 자동갱신은 현재가+VIX만 조회하므로 크레딧 추가 소모 없음
+      // 유료 전환 후 mode=cached 추가 시 크레딧 대폭 절약 가능
       const chainUrl = `https://api.marketdata.app/v1/options/chain/${mdSymbol}/` +
-        `?expiration=all` +
-        `&strikeLimit=60`;
+        `?expiration=all`;
 
       const chainR = await fetch(chainUrl, {
         headers: {
