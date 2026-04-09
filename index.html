@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v6.3</title>
+<title>딜러 리스크 대시보드 v6.4</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -192,7 +192,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.3 · MD App</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.4 · MD App</div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -981,6 +981,15 @@ async function loadData() {
     }
 
     const expKey = exp.replace(/-/g,'').slice(2);
+
+    // ── 전체 만기 합산 → GEX, Flip Zone, PCR 계산 ──
+    const allParsed = allOptions.map(o=>{
+      const m=o.option.trim().match(/(\d{6})([CP])(\d+)/);
+      if(!m) return null;
+      return {strike:parseInt(m[3])/1000,type:m[2],iv:o.iv,gamma:o.gamma,delta:o.delta,oi:o.open_interest,volume:o.volume};
+    }).filter(Boolean);
+
+    // ── 선택 만기 → Put/Call Wall, 헷지 스트라이크 계산 ──
     const parsed = allOptions.filter(o=>{
       const m=o.option.trim().match(/(\d{6})[CP]/); return m&&m[1]===expKey;
     }).map(o=>{
@@ -988,6 +997,17 @@ async function loadData() {
       return {strike:parseInt(m[3])/1000,type:m[2],iv:o.iv,gamma:o.gamma,delta:o.delta,oi:o.open_interest,volume:o.volume};
     });
 
+    // ── 전체 만기 기준 GEX 맵 ──
+    const allMap={};
+    allParsed.forEach(o=>{
+      if(!allMap[o.strike])allMap[o.strike]={strike:o.strike,callOI:0,putOI:0,callGamma:0,putGamma:0,callVol:0,putVol:0,ivSum:0,ivN:0};
+      const s=allMap[o.strike];
+      if(o.type==='C'){s.callOI+=o.oi;s.callGamma+=o.gamma;s.callVol+=o.volume;}
+      else{s.putOI+=o.oi;s.putGamma+=o.gamma;s.putVol+=o.volume;}
+      if(o.iv>0){s.ivSum+=o.iv;s.ivN++;}
+    });
+
+    // ── 선택 만기 기준 맵 (Put/Call Wall, 헷지 Top4용) ──
     const map={};
     parsed.forEach(o=>{
       if(!map[o.strike])map[o.strike]={strike:o.strike,callOI:0,putOI:0,callGamma:0,putGamma:0,callVol:0,putVol:0,ivSum:0,ivN:0};
@@ -997,12 +1017,11 @@ async function loadData() {
       if(o.iv>0){s.ivSum+=o.iv;s.ivN++;}
     });
 
-    const strikes=Object.values(map).sort((a,b)=>a.strike-b.strike);
+    // ── 전체 만기 기준: GEX, Flip Zone, PCR, OI 분포 ──
+    const strikes=Object.values(allMap).sort((a,b)=>a.strike-b.strike);
     strikes.forEach(s=>{
-      // 딜러 GEX 공식: Gamma × OI × 100 × Spot²
-      // Market Data App gamma는 소수 단위 (CBOE처럼 0.01 추가 곱셈 불필요)
-      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice;
-      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice;
+      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice * 0.01;
+      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice * 0.01;
       s.gex = callGex - putGex;
       s.iv=s.ivN>0?s.ivSum/s.ivN:0;
       s.callHedge=s.callGamma*s.callOI*100*spotPrice;
@@ -1012,16 +1031,26 @@ async function loadData() {
     let cum=0,flipZone=null;
     strikes.forEach(s=>{const p=cum;cum+=s.gex;s.cumGex=cum;if(!flipZone&&((p<0&&cum>=0)||(p>0&&cum<=0)))flipZone=s.strike;});
 
-    const near=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.10);
-    const putWall=near.reduce((b,s)=>s.putOI>b.putOI?s:b,near[0])?.strike;
-    const callWall=near.reduce((b,s)=>s.callOI>b.callOI?s:b,near[0])?.strike;
-    const localGEX=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.02).reduce((a,s)=>a+s.gex,0);
     const totalCallOI=strikes.reduce((a,s)=>a+s.callOI,0);
     const totalPutOI=strikes.reduce((a,s)=>a+s.putOI,0);
     const pcr=totalPutOI/Math.max(totalCallOI,1);
     const totalGEX=cum;
-    const upStrikes=strikes.filter(s=>s.strike>spotPrice&&s.strike<=spotPrice*1.05).sort((a,b)=>b.callHedge-a.callHedge).slice(0,4);
-    const dnStrikes=strikes.filter(s=>s.strike<spotPrice&&s.strike>=spotPrice*0.95).sort((a,b)=>b.putHedge-a.putHedge).slice(0,4);
+    const localGEX=strikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.02).reduce((a,s)=>a+s.gex,0);
+
+    // ── 선택 만기 기준: Put/Call Wall, 헷지 Top4 ──
+    const expStrikes=Object.values(map).sort((a,b)=>a.strike-b.strike);
+    expStrikes.forEach(s=>{
+      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice * 0.01;
+      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice * 0.01;
+      s.gex = callGex - putGex;
+      s.callHedge=s.callGamma*s.callOI*100*spotPrice;
+      s.putHedge=s.putGamma*s.putOI*100*spotPrice;
+    });
+    const near=expStrikes.filter(s=>Math.abs(s.strike-spotPrice)/spotPrice<0.10);
+    const putWall=near.reduce((b,s)=>s.putOI>b.putOI?s:b,near[0]||{strike:0})?.strike;
+    const callWall=near.reduce((b,s)=>s.callOI>b.callOI?s:b,near[0]||{strike:0})?.strike;
+    const upStrikes=expStrikes.filter(s=>s.strike>spotPrice&&s.strike<=spotPrice*1.05).sort((a,b)=>b.callHedge-a.callHedge).slice(0,4);
+    const dnStrikes=expStrikes.filter(s=>s.strike<spotPrice&&s.strike>=spotPrice*0.95).sort((a,b)=>b.putHedge-a.putHedge).slice(0,4);
 
     currentStrikes=strikes; priceHistory=[]; liveEvents=[]; vcHistory=[];
     prevSpot=spotPrice;
