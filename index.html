@@ -192,7 +192,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.5 · MD App</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.6 · MD App</div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -982,14 +982,21 @@ async function loadData() {
 
     const expKey = exp.replace(/-/g,'').slice(2);
 
-    // 오늘 날짜 기준 (만료된 만기 제외)
+    // EST 기준 오늘 날짜 (만료된 만기 제외용)
+    // exp 변수 자체가 "2026-04-09" 형식이므로 이를 활용
+    const todayKey = exp.replace(/-/g,'').slice(2); // 선택된 만기가 오늘이면 "260409"
+    // 실제로는 오늘 날짜를 EST 기준으로 계산
     const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-    const todayKey = `${String(nowEST.getFullYear()).slice(2)}${String(nowEST.getMonth()+1).padStart(2,'0')}${String(nowEST.getDate()).padStart(2,'0')}`;
+    const estYear = String(nowEST.getFullYear()).slice(2);
+    const estMonth = String(nowEST.getMonth()+1).padStart(2,'0');
+    const estDay = String(nowEST.getDate()).padStart(2,'0');
+    const estTodayKey = `${estYear}${estMonth}${estDay}`; // "260409"
 
     // ── 전체 만기 합산 → GEX, Flip Zone, PCR 계산 (오늘 이후 만기만) ──
     const allParsed = allOptions.filter(o=>{
       const m=o.option.trim().match(/(\d{6})[CP]/);
-      return m && m[1] >= todayKey; // 만료된 만기 제외
+      if (!m) return false;
+      return m[1] >= estTodayKey; // 만료된 만기(어제 이전) 제외
     }).map(o=>{
       const m=o.option.trim().match(/(\d{6})([CP])(\d+)/);
       if(!m) return null;
