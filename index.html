@@ -192,7 +192,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.4 · MD App</div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.5 · MD App</div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -982,8 +982,15 @@ async function loadData() {
 
     const expKey = exp.replace(/-/g,'').slice(2);
 
-    // ── 전체 만기 합산 → GEX, Flip Zone, PCR 계산 ──
-    const allParsed = allOptions.map(o=>{
+    // 오늘 날짜 기준 (만료된 만기 제외)
+    const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const todayKey = `${String(nowEST.getFullYear()).slice(2)}${String(nowEST.getMonth()+1).padStart(2,'0')}${String(nowEST.getDate()).padStart(2,'0')}`;
+
+    // ── 전체 만기 합산 → GEX, Flip Zone, PCR 계산 (오늘 이후 만기만) ──
+    const allParsed = allOptions.filter(o=>{
+      const m=o.option.trim().match(/(\d{6})[CP]/);
+      return m && m[1] >= todayKey; // 만료된 만기 제외
+    }).map(o=>{
       const m=o.option.trim().match(/(\d{6})([CP])(\d+)/);
       if(!m) return null;
       return {strike:parseInt(m[3])/1000,type:m[2],iv:o.iv,gamma:o.gamma,delta:o.delta,oi:o.open_interest,volume:o.volume};
@@ -1002,8 +1009,8 @@ async function loadData() {
     allParsed.forEach(o=>{
       if(!allMap[o.strike])allMap[o.strike]={strike:o.strike,callOI:0,putOI:0,callGamma:0,putGamma:0,callVol:0,putVol:0,ivSum:0,ivN:0};
       const s=allMap[o.strike];
-      if(o.type==='C'){s.callOI+=o.oi;s.callGamma+=o.gamma;s.callVol+=o.volume;}
-      else{s.putOI+=o.oi;s.putGamma+=o.gamma;s.putVol+=o.volume;}
+      if(o.type==='C'){s.callOI+=o.oi;s.callGamma=o.gamma;s.callVol+=o.volume;}
+      else{s.putOI+=o.oi;s.putGamma=o.gamma;s.putVol+=o.volume;}
       if(o.iv>0){s.ivSum+=o.iv;s.ivN++;}
     });
 
@@ -1020,9 +1027,9 @@ async function loadData() {
     // ── 전체 만기 기준: GEX, Flip Zone, PCR, OI 분포 ──
     const strikes=Object.values(allMap).sort((a,b)=>a.strike-b.strike);
     strikes.forEach(s=>{
-      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice * 0.01;
-      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice * 0.01;
-      s.gex = callGex - putGex;
+      // CBOE 최종 공식: (callOI - putOI) × 100 × avgGamma × Spot² × 0.01
+      const g = (s.callGamma + s.putGamma) / 2;
+      s.gex = (s.callOI - s.putOI) * 100 * g * spotPrice * spotPrice * 0.01;
       s.iv=s.ivN>0?s.ivSum/s.ivN:0;
       s.callHedge=s.callGamma*s.callOI*100*spotPrice;
       s.putHedge=s.putGamma*s.putOI*100*spotPrice;
