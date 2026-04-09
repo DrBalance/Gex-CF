@@ -78,12 +78,11 @@ async function handleOptions(url, env) {
 
       // ── Step 2: 옵션 체인 조회 ──
       // expiration=all: 전체 만기
-      // strikeLimit=100: 현재가 기준 ±100 스트라이크
-      //   → Flip Zone, PCR 정확도 향상
-      //   → 1회 ~200 크레딧 × 390회 = 78,000 크레딧/일 (10만개 이내)
+      // strikeLimit=60: 현재가 기준 ±60 스트라이크
+      //   → 1회 ~120 크레딧 × 390회 = 46,800 크레딧/일 (10만개 이내)
       const chainUrl = `https://api.marketdata.app/v1/options/chain/${mdSymbol}/` +
         `?expiration=all` +
-        `&strikeLimit=100`;
+        `&strikeLimit=60`;
 
       const chainR = await fetch(chainUrl, {
         headers: {
