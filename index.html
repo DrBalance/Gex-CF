@@ -998,9 +998,10 @@ async function loadData() {
 
     const strikes=Object.values(map).sort((a,b)=>a.strike-b.strike);
     strikes.forEach(s=>{
-      // 딜러 GEX: 콜은 숏(양수), 풋은 롱(음수) → 각각 따로 계산 후 합산
-      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice * 0.01;
-      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice * 0.01;
+      // 딜러 GEX 공식: Gamma × OI × 100 × Spot²
+      // Market Data App gamma는 소수 단위 (CBOE처럼 0.01 추가 곱셈 불필요)
+      const callGex = s.callGamma * s.callOI * 100 * spotPrice * spotPrice;
+      const putGex  = s.putGamma  * s.putOI  * 100 * spotPrice * spotPrice;
       s.gex = callGex - putGex;
       s.iv=s.ivN>0?s.ivSum/s.ivN:0;
       s.callHedge=s.callGamma*s.callOI*100*spotPrice;
