@@ -102,9 +102,17 @@ select,button{font-family:var(--font);font-size:14px}
 .judgment-item.ji-blue .ji-icon{color:var(--blue)}
 .judgment-item.ji-orange .ji-icon{color:var(--orange)}
 
-.judgment-live{padding:14px 18px;max-height:260px;overflow-y:auto}
-.judgment-live-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.judgment-live{padding:14px 18px 0;position:relative}
+.judgment-live-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.judgment-live-title{font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.08em;display:flex;align-items:center;gap:6px}
 .judgment-live-title .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+.judgment-live-nav{display:flex;gap:4px}
+.jl-nav-btn{background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text3);font-size:13px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.jl-nav-btn:active{background:var(--bg2)}
+.judgment-live-scroll{max-height:220px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding-bottom:14px}
+.judgment-live-scroll::-webkit-scrollbar{width:3px}
+.judgment-live-scroll::-webkit-scrollbar-track{background:transparent}
+.judgment-live-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .live-event{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:12px;line-height:1.5}
 .live-event:last-child{border-bottom:none}
 .live-event .le-time{color:var(--text3);font-family:var(--mono);flex-shrink:0;min-width:52px}
@@ -697,40 +705,60 @@ function renderVCChart() {
         const wrap = document.getElementById('vc-scroll-wrap');
         if (!wrap) return;
         const yScale = chart.scales['y'];
+        const yVixScale = chart.scales['yVix'];
         if (!yScale) return;
         const scrollX = wrap.scrollLeft;
-        if (scrollX === 0) return; // 스크롤 없으면 기본 y축 그대로
-        const { ctx, chartArea } = chart;
-        const axisW = yScale.right; // y축 오른쪽 경계 (보통 40~55px)
-        // 스크롤된 만큼 오른쪽으로 이동한 위치에 y축 배경+틱 재드로우
+        const wrapW = wrap.clientWidth;
+        if (scrollX === 0 && wrapW >= chart.width) return;
+        const { ctx, chartArea, height, width } = chart;
+
         ctx.save();
-        // 배경 덮어쓰기
-        ctx.fillStyle = '#161b22';
-        ctx.fillRect(scrollX, 0, axisW, chart.height);
-        // y축 틱 텍스트 직접 그리기
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#8b949e';
-        ctx.font = '10px monospace';
-        yScale.ticks.forEach((tick, i) => {
-          const y = yScale.getPixelForTick(i);
-          const label = mFormatter(tick.value);
-          ctx.fillText(label, scrollX + axisW - 4, y);
-          // 구분선
-          ctx.strokeStyle = 'rgba(48,54,61,.4)';
-          ctx.lineWidth = 0.5;
+
+        // ── 왼쪽 y축 고정 ──
+        if (scrollX > 0) {
+          const axisW = yScale.right;
+          ctx.fillStyle = '#161b22';
+          ctx.fillRect(scrollX, 0, axisW, height);
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#8b949e';
+          ctx.font = '10px monospace';
+          yScale.ticks.forEach((tick, i) => {
+            const y = yScale.getPixelForTick(i);
+            ctx.fillText(mFormatter(tick.value), scrollX + axisW - 4, y);
+          });
+          ctx.strokeStyle = '#30363d';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(scrollX, y);
-          ctx.lineTo(scrollX + axisW, y);
+          ctx.moveTo(scrollX + axisW, chartArea.top);
+          ctx.lineTo(scrollX + axisW, chartArea.bottom);
           ctx.stroke();
-        });
-        // 경계선
-        ctx.strokeStyle = '#30363d';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(scrollX + axisW, chartArea.top);
-        ctx.lineTo(scrollX + axisW, chartArea.bottom);
-        ctx.stroke();
+        }
+
+        // ── 오른쪽 yVix축 고정 ──
+        if (yVixScale && scrollX > 0) {
+          const rAxisStart = yVixScale.left; // 오른쪽 축 시작 x
+          const rAxisW = width - rAxisStart;  // 오른쪽 축 너비
+          const fixedRX = scrollX + wrapW - rAxisW; // 뷰포트 오른쪽 끝에 붙임
+          ctx.fillStyle = '#161b22';
+          ctx.fillRect(fixedRX, 0, rAxisW, height);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#d29922';
+          ctx.font = '10px monospace';
+          yVixScale.ticks.forEach((tick, i) => {
+            const y = yVixScale.getPixelForTick(i);
+            const label = tick.value?.toFixed(1) ?? '';
+            ctx.fillText(label, fixedRX + 4, y);
+          });
+          ctx.strokeStyle = '#30363d';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(fixedRX, chartArea.top);
+          ctx.lineTo(fixedRX, chartArea.bottom);
+          ctx.stroke();
+        }
+
         ctx.restore();
       }
     }]
@@ -1164,6 +1192,11 @@ async function loadData() {
   } finally{btn.disabled=false;btn.textContent='⬇ 데이터 로드';}
 }
 
+function jlScroll(dir) {
+  const el = document.getElementById('judgment-live-scroll');
+  if (el) el.scrollBy({ top: dir * 72, behavior: 'smooth' });
+}
+
 function setStatus(s){
   const dot=document.getElementById('status-dot'),txt=document.getElementById('status-text');
   if(s==='loading'){dot.className='status-dot';txt.textContent='로딩 중...';}
@@ -1236,8 +1269,16 @@ function render(d){
         <div id="judgment-fixed-content"></div>
       </div>
       <div class="judgment-live">
-        <div class="judgment-live-title"><div class="live-dot"></div>실시간 상황 판단</div>
-        <div id="judgment-live-content"><div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">자동갱신 ON 후 활성화됩니다</span></div></div>
+        <div class="judgment-live-header">
+          <div class="judgment-live-title"><div class="live-dot"></div>실시간 상황 판단</div>
+          <div class="judgment-live-nav">
+            <div class="jl-nav-btn" onclick="jlScroll(-1)" title="위로">▲</div>
+            <div class="jl-nav-btn" onclick="jlScroll(1)" title="아래로">▼</div>
+          </div>
+        </div>
+        <div class="judgment-live-scroll" id="judgment-live-scroll">
+          <div id="judgment-live-content"><div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">자동갱신 ON 후 활성화됩니다</span></div></div>
+        </div>
       </div>
     </div>
 
@@ -1398,12 +1439,14 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
         {type:'line',label:'GEX(M)',data:chartData.map(s=>+(s.gex/1e6).toFixed(3)),
          borderColor:'#f0883e',backgroundColor:'transparent',
          pointRadius:3,pointBackgroundColor:'#f0883e',
+         pointHoverBackgroundColor:'#f85149',pointHoverRadius:7,pointHoverBorderColor:'#fff',pointHoverBorderWidth:1.5,
          borderWidth:2.5,tension:.3,yAxisID:'y2'},
       ]
     },
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
+      onHover:(e,els)=>{ if(chartInst) chartInst._hoveredIdx = els.length ? els[0].index : null; },
       plugins:{
         legend:{display:true,position:'top',align:'start',labels:{color:'#8b949e',font:{size:12},boxWidth:12,padding:16}},
         tooltip:{
@@ -1471,6 +1514,27 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
       }
     },
     plugins:[{
+      // ── 호버 시 GEX 라인 붉은 점 ──
+      id: 'hoverDot',
+      afterDraw(chart) {
+        const idx = chart._hoveredIdx;
+        if (idx == null) return;
+        const ds = chart.data.datasets[2]; // GEX 라인
+        const meta = chart.getDatasetMeta(2);
+        if (!meta?.data[idx]) return;
+        const pt = meta.data[idx];
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 6, 0, Math.PI*2);
+        ctx.fillStyle = '#f85149';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1.5;
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
+    },{
       // ── OI GEX 차트 y축 스크롤 고정 플러그인 ──
       id: 'mainStickyY',
       afterDraw(chart) {
@@ -1480,35 +1544,64 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
         const y2Scale = chart.scales['y2'];
         if (!yScale) return;
         const scrollX = wrap.scrollLeft;
-        if (scrollX === 0) return;
-        const { ctx, chartArea, height } = chart;
-        const axisW = yScale.right;
+        const wrapW = wrap.clientWidth;
+        if (scrollX === 0 && wrapW >= chart.width) return;
+        const { ctx, chartArea, height, width } = chart;
+
         ctx.save();
-        ctx.fillStyle = '#161b22';
-        ctx.fillRect(scrollX, 0, axisW, height);
-        ctx.textAlign = 'right';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#6e7681';
-        ctx.font = '11px monospace';
-        yScale.ticks.forEach((tick, i) => {
-          const y = yScale.getPixelForTick(i);
-          const abs = Math.abs(tick.value);
-          const sign = tick.value < 0 ? '-' : '';
-          let label = abs >= 1000000 ? sign+Math.round(abs/1e6)+'M' : abs >= 1000 ? sign+Math.round(abs/1000)+'K' : String(tick.value);
-          ctx.fillText(label, scrollX + axisW - 4, y);
-          ctx.strokeStyle = 'rgba(48,54,61,.7)';
-          ctx.lineWidth = 0.5;
+
+        // ── 왼쪽 y축 고정 ──
+        if (scrollX > 0) {
+          const axisW = yScale.right;
+          ctx.fillStyle = '#161b22';
+          ctx.fillRect(scrollX, 0, axisW, height);
+          ctx.textAlign = 'right';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#6e7681';
+          ctx.font = '11px monospace';
+          yScale.ticks.forEach((tick, i) => {
+            const y = yScale.getPixelForTick(i);
+            const abs = Math.abs(tick.value);
+            const sign = tick.value < 0 ? '-' : '';
+            let label = abs >= 1000000 ? sign+Math.round(abs/1e6)+'M'
+                      : abs >= 1000    ? sign+Math.round(abs/1000)+'K'
+                      : String(tick.value);
+            ctx.fillText(label, scrollX + axisW - 4, y);
+          });
+          ctx.strokeStyle = '#30363d';
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(scrollX + axisW, y);
-          ctx.lineTo(scrollX + axisW + 4, y);
+          ctx.moveTo(scrollX + axisW, chartArea.top);
+          ctx.lineTo(scrollX + axisW, chartArea.bottom);
           ctx.stroke();
-        });
-        ctx.strokeStyle = '#30363d';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(scrollX + axisW, chartArea.top);
-        ctx.lineTo(scrollX + axisW, chartArea.bottom);
-        ctx.stroke();
+        }
+
+        // ── 오른쪽 y2축 고정 ──
+        if (y2Scale && scrollX > 0) {
+          const rAxisStart = y2Scale.left;
+          const rAxisW = width - rAxisStart;
+          const fixedRX = scrollX + wrapW - rAxisW;
+          ctx.fillStyle = '#161b22';
+          ctx.fillRect(fixedRX, 0, rAxisW, height);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#f0883e';
+          ctx.font = '11px monospace';
+          y2Scale.ticks.forEach((tick, i) => {
+            const y = y2Scale.getPixelForTick(i);
+            const abs = Math.abs(tick.value);
+            const sign = tick.value < 0 ? '-' : '';
+            const label = abs >= 1000 ? sign+Math.round(abs/1000)+'K' : tick.value+'M';
+            ctx.fillText(label, fixedRX + 4, y);
+          });
+          ctx.strokeStyle = '#30363d';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(fixedRX, chartArea.top);
+          ctx.lineTo(fixedRX, chartArea.bottom);
+          ctx.stroke();
+        }
+
         ctx.restore();
       }
     }]
