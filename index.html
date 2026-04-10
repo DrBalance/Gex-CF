@@ -791,7 +791,15 @@ function buildFixedJudgment(d, vc) {
     items.push({ cls:'ji-red', icon:'▼', text:`<b>Negative GEX ${localM.toFixed(0)}M</b> — 딜러가 추세를 증폭합니다. 방향 한 번 잡히면 가속 가능` });
   }
 
-  // Vanna 구조
+  // Vanna / Charm + VC Ratio
+  const vcRatio = Math.abs(totalVanna) > 0 ? Math.abs(totalCharm) / Math.abs(totalVanna) : 0;
+  const vcRatioStr = vcRatio.toFixed(2);
+  const vcDom = vcRatio < 0.15 ? 'Vanna 완전 지배'
+              : vcRatio < 0.35 ? 'Vanna 우세, Charm 부차적'
+              : vcRatio < 0.65 ? 'Vanna·Charm 균형'
+              : vcRatio < 1.0  ? 'Charm 우세'
+              : 'Charm 지배';
+
   if (Math.abs(totalVanna) > 100) {
     if (totalVanna < 0) {
       items.push({ cls:'ji-red', icon:'◈', text:`<b>Vanna ${totalVanna.toFixed(0)}M (음수)</b> — VIX 상승 시 딜러 매도 헷지 강화. VIX가 올라오면 하락 압력 가속됩니다` });
@@ -800,13 +808,19 @@ function buildFixedJudgment(d, vc) {
     }
   }
 
-  // Charm 구조
+  // Charm 구조 + VC Ratio
   if (Math.abs(totalCharm) > 50) {
-    if (totalCharm < 0) {
-      items.push({ cls:'ji-blue', icon:'⏱', text:`<b>Charm ${totalCharm.toFixed(0)}M (음수)</b> — 시간 경과로 딜러 매수 강제. 오후 1시 이후 매수 드리프트 압력이 작동합니다` });
-    } else {
-      items.push({ cls:'ji-orange', icon:'⏱', text:`<b>Charm ${totalCharm.toFixed(0)}M (양수)</b> — 시간 경과로 딜러 매도 강제. 오후 1시 이후 하락 드리프트 압력이 작동합니다` });
-    }
+    const charmDir = totalCharm < 0 ? '매수 드리프트' : '매도 드리프트';
+    const charmCls = totalCharm < 0 ? 'ji-blue' : 'ji-orange';
+    items.push({ cls: charmCls, icon:'⏱', text:
+      `<b>Charm ${totalCharm.toFixed(0)}M</b> — 오후 1시 이후 ${charmDir} 압력 작동. ` +
+      `<b>VC Ratio ${vcRatioStr}</b> (${vcDom}) — ` +
+      (vcRatio < 0.35
+        ? 'Vanna에 압도되어 Charm 실효성 제한적'
+        : vcRatio < 0.65
+        ? 'Charm이 부분적으로 방향에 기여 가능'
+        : 'Charm이 오후 흐름 주도 가능성 있음')
+    });
   }
 
   // Flip Zone
@@ -1046,6 +1060,8 @@ async function autoRefresh() {
       mCharm.querySelector('.val').textContent = vc.totalCharm.toFixed(1)+'M';
       mCharm.style.borderColor = '#58a6ff55';
       mCharm.querySelector('.val').style.color = '#58a6ff';
+      const vcR = Math.abs(vc.totalVanna) > 0 ? (Math.abs(vc.totalCharm)/Math.abs(vc.totalVanna)).toFixed(2) : '—';
+      mCharm.querySelector('.lbl').textContent = `● Charm · VC ${vcR}`;
     }
 
     // 힘의 균형 업데이트
@@ -1257,7 +1273,7 @@ function render(d){
       <div class="metric ${vixVal&&vixVal>30?'danger':vixVal&&vixVal>20?'warn':'yellow'}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
       <div class="metric ${vvixVal&&vvixVal>130?'danger':vvixVal&&vvixVal>110?'warn':'yellow'}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
       <div class="metric" id="metric-vanna" style="border-color:#bc8cff55"><div class="val" style="color:#bc8cff">${vc.totalVanna.toFixed(1)}M</div><div class="lbl" style="color:#bc8cff">● Vanna Exp</div></div>
-      <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${vc.totalCharm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm Exp</div></div>
+      <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${vc.totalCharm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm · VC ${Math.abs(vc.totalVanna)>0?(Math.abs(vc.totalCharm)/Math.abs(vc.totalVanna)).toFixed(2):'—'}</div></div>
     </div>
 
     <!-- 통합 상황판단 -->
