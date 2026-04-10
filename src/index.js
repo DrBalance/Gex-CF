@@ -1,4 +1,4 @@
-// GEX Dashboard - Cloudflare Workers v2
+// GEX Dashboard - Cloudflare Workers v2 (v6.11 - GEX Fix: callOI*callGamma - putOI*putGamma)
 // 엔드포인트:
 //   /api/options?symbol=SPY              → CBOE (초기 로드, 무료)
 //   /api/options?symbol=SPY&mode=cached  → Market Data App mode=cached (유료 전환 후 자동갱신)
