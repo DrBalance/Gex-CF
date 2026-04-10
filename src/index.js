@@ -367,18 +367,16 @@ async function handleGreeks(url, env) {
         if (o.iv > 0) { s.ivSum += o.iv; s.ivN++; }
       });
       const strikes = Object.values(map).sort((a, b) => a.strike - b.strike);
-      strikes.forEach(s => {
-        s.gex = (s.callOI * s.callGamma - s.putOI * s.putGamma) * 100 * spotPrice;
-        s.iv = s.ivN > 0 ? s.ivSum / s.ivN : 0;
-      });
 
-      // 4. Vanna / Charm 계산
+      // 4. GEX + Vanna + Charm — BS Gamma로 통합 계산
+      // CBOE Gamma는 딥OTM에서 신뢰 불가, BS로 직접 산출
       const msToExp = new Date(exp) - new Date();
       const T = Math.max(msToExp / (1000*60*60*24*365), 1/365);
       const safeT = Math.max(T, 0.5/365);
       const r = 0.045;
       let totalVanna = 0, totalCharm = 0;
       strikes.forEach(s => {
+        s.iv = s.ivN > 0 ? s.ivSum / s.ivN : 0;
         const K = s.strike;
         const sigma = s.iv > 0 ? s.iv : 0.20;
         const sqrtT = Math.sqrt(T);
@@ -387,6 +385,11 @@ async function handleGreeks(url, env) {
         const d1 = (lnSK + (r + sigma*sigma/2)*T) / (sigma * sqrtT);
         const d2 = d1 - sigma * sqrtT;
         const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
+        // BS Gamma
+        const bsGamma = isFinite(nd1) ? nd1 / (spotPrice * sigma * sqrtT) : 0;
+        // GEX (표준 공식: callOI - putOI 기준)
+        s.gex = isFinite(bsGamma) ? (s.callOI - s.putOI) * bsGamma * 100 * spotPrice : 0;
+        // Vanna / Charm
         const netOI = s.callOI - s.putOI;
         const vanna = nd1 * (d2 / sigma) * netOI * 100 * spotPrice;
         totalVanna += isFinite(vanna) ? vanna : 0;
