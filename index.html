@@ -149,34 +149,25 @@ select,button{font-family:var(--font);font-size:14px}
 .vc-zoom-slider{-webkit-appearance:none;width:120px;height:4px;border-radius:2px;background:var(--bg3);outline:none;cursor:pointer}
 .vc-zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--blue);cursor:pointer}
 .vc-zoom-val{font-size:11px;color:var(--blue);font-family:var(--mono);min-width:24px}
-.vc-outer-wrap{position:relative;border-radius:6px;border:1px solid var(--border);overflow:hidden}
-.vc-scroll-wrap{overflow-x:auto;overflow-y:hidden;margin-left:52px}
+.vc-scroll-wrap{overflow-x:auto;overflow-y:hidden;border-radius:6px;border:1px solid var(--border)}
 .vc-scroll-wrap::-webkit-scrollbar{height:4px}
 .vc-scroll-wrap::-webkit-scrollbar-track{background:var(--bg3)}
 .vc-scroll-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .vc-chart-inner{position:relative;height:220px;min-width:100%}
-/* 고정 y축 캔버스 오버레이 */
-.vc-yaxis-fixed{position:absolute;left:0;top:0;width:52px;height:100%;background:var(--bg2);border-right:1px solid var(--border);z-index:5;pointer-events:none}
-.vc-yaxis-fixed canvas{position:absolute;left:0;top:0;width:52px}
 .vc-empty{text-align:center;padding:60px 0;color:var(--text3);font-size:13px}
 
-/* ── 차트 컨트롤 ── */
+/* ── 차트 ── */
 .chart-controls{display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap}
 .zoom-label{font-size:12px;color:var(--text3)}
 .zoom-slider{-webkit-appearance:none;width:160px;height:4px;border-radius:2px;background:var(--bg3);outline:none;cursor:pointer}
 .zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--blue);cursor:pointer}
 .zoom-val{font-size:12px;color:var(--blue);font-family:var(--mono);min-width:30px}
 .scroll-hint{font-size:12px;color:var(--text3)}
-
-/* ── OI GEX 차트 스크롤 ── */
-.chart-outer-wrap{position:relative;border-radius:6px;border:1px solid var(--border);overflow:hidden}
-.chart-scroll-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;margin-left:58px}
+.chart-scroll-wrap{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;border-radius:6px;border:1px solid var(--border)}
 .chart-scroll-wrap::-webkit-scrollbar{height:5px}
 .chart-scroll-wrap::-webkit-scrollbar-track{background:var(--bg3)}
 .chart-scroll-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
 .chart-inner{position:relative;height:460px;min-width:100%}
-.chart-yaxis-fixed{position:absolute;left:0;top:0;width:58px;height:100%;background:var(--bg2);border-right:1px solid var(--border);z-index:5;pointer-events:none}
-.chart-yaxis-fixed canvas{position:absolute;left:0;top:0}
 
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse}
@@ -595,37 +586,7 @@ function renderVCChart() {
     }
   };
 
-  // 고정 y축 플러그인: afterRender마다 별도 캔버스에 y축 복사
-  const stickyYAxisPlugin = {
-    id: 'stickyYAxis',
-    afterRender(chart) {
-      const fixedDiv = document.getElementById('vc-yaxis-fixed');
-      if (!fixedDiv) return;
-      const yScale = chart.scales['y'];
-      if (!yScale) return;
-      const chartCanvas = chart.canvas;
-      const dpr = window.devicePixelRatio || 1;
-      const W = 52, H = chartCanvas.offsetHeight;
-      let fc = document.getElementById('vc-yaxis-canvas');
-      if (!fc) return;
-      fixedDiv.style.height = H + 'px';
-      fc.width = W * dpr;
-      fc.height = H * dpr;
-      fc.style.width = W + 'px';
-      fc.style.height = H + 'px';
-      const fctx = fc.getContext('2d');
-      fctx.clearRect(0, 0, W * dpr, H * dpr);
-      // 차트 캔버스에서 y축 영역만 복사
-      const srcX = 0;
-      const srcY = 0;
-      const srcW = Math.round(yScale.right * dpr);
-      const srcH = chartCanvas.height;
-      fctx.drawImage(chartCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW / dpr * (W / (yScale.right || W)), H);
-      // 배경으로 가려진 부분 위에 배경 채우기 (오른쪽 경계선 제외)
-      fctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim() || '#161b22';
-      // 이미 drawImage로 복사했으므로 추가 처리 불필요
-    }
-  };
+  vcChartInst = new Chart(document.getElementById('vc-chart'), {
     type: 'line',
     data: {
       labels: timeLabels,
@@ -709,9 +670,8 @@ function renderVCChart() {
           ticks: { color: '#8b949e', font:{ size:10 }, callback: mFormatter },
           grid: { color:'rgba(48,54,61,.4)' },
           afterDataLimits(scale) {
-            // Vanna/Charm은 값 변화가 작으므로 min/max에 20% 여백 추가
             const range = scale.max - scale.min;
-            const pad = range === 0 ? Math.abs(scale.max) * 0.3 || 1 : range * 0.2;
+            const pad = range === 0 ? (Math.abs(scale.max) * 0.3 || 1) : range * 0.22;
             scale.min -= pad;
             scale.max += pad;
           }
@@ -722,15 +682,67 @@ function renderVCChart() {
           grid: { drawOnChartArea: false },
           afterDataLimits(scale) {
             const range = scale.max - scale.min;
-            const pad = range === 0 ? 1 : range * 0.15;
+            const pad = range === 0 ? 1 : range * 0.18;
             scale.min -= pad;
             scale.max += pad;
           }
         }
       }
     },
-    plugins: [gexBgPlugin, sessionLinePlugin, stickyYAxisPlugin]
+    plugins: [gexBgPlugin, sessionLinePlugin, {
+      // ── Greek 차트 y축 스크롤 고정 플러그인 ──
+      // scroll wrap 위에 y축 영역을 매 프레임 다시 그려 항상 보이게 함
+      id: 'vcStickyY',
+      afterDraw(chart) {
+        const wrap = document.getElementById('vc-scroll-wrap');
+        if (!wrap) return;
+        const yScale = chart.scales['y'];
+        if (!yScale) return;
+        const scrollX = wrap.scrollLeft;
+        if (scrollX === 0) return; // 스크롤 없으면 기본 y축 그대로
+        const { ctx, chartArea } = chart;
+        const axisW = yScale.right; // y축 오른쪽 경계 (보통 40~55px)
+        // 스크롤된 만큼 오른쪽으로 이동한 위치에 y축 배경+틱 재드로우
+        ctx.save();
+        // 배경 덮어쓰기
+        ctx.fillStyle = '#161b22';
+        ctx.fillRect(scrollX, 0, axisW, chart.height);
+        // y축 틱 텍스트 직접 그리기
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#8b949e';
+        ctx.font = '10px monospace';
+        yScale.ticks.forEach((tick, i) => {
+          const y = yScale.getPixelForTick(i);
+          const label = mFormatter(tick.value);
+          ctx.fillText(label, scrollX + axisW - 4, y);
+          // 구분선
+          ctx.strokeStyle = 'rgba(48,54,61,.4)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(scrollX, y);
+          ctx.lineTo(scrollX + axisW, y);
+          ctx.stroke();
+        });
+        // 경계선
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(scrollX + axisW, chartArea.top);
+        ctx.lineTo(scrollX + axisW, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }]
   });
+
+  // 스크롤 시 y축 재드로우 (sticky 효과)
+  const vcWrap = document.getElementById('vc-scroll-wrap');
+  if (vcWrap) {
+    vcWrap._scrollHandler && vcWrap.removeEventListener('scroll', vcWrap._scrollHandler);
+    vcWrap._scrollHandler = () => { if (vcChartInst) vcChartInst.draw(); };
+    vcWrap.addEventListener('scroll', vcWrap._scrollHandler, { passive: true });
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -926,10 +938,8 @@ async function autoRefresh() {
   try {
     setStatus('updating');
 
-    // ── 캐시(vcHistory)가 있으면 먼저 즉시 렌더 ──
-    if (vcHistory.length > 0) {
-      renderVCChart();
-    }
+    // 캐시(vcHistory)가 있으면 API 로딩 전에 즉시 렌더
+    if (vcHistory.length > 0) renderVCChart();
 
     const sym = document.getElementById('sym-select').value.replace('_','');
 
@@ -977,9 +987,8 @@ async function autoRefresh() {
     });
     if (vcHistory.length > 120) vcHistory.shift();
 
-    // ── VVIX 급등 캔들 감지 ──
-    // 직전 캔들 대비 현재 VVIX가 임계값(기본 3pt) 이상 급등 시 경고
-    const VVIX_SPIKE_THRESHOLD = 3.0; // VVIX 포인트
+    // ── VVIX 급등 감지 (VIX 본격 상승 선행 신호) ──
+    const VVIX_SPIKE_THRESHOLD = 3.0;
     const prevVvix = priceHistory.length >= 2 ? priceHistory[priceHistory.length - 2]?.vvix : null;
     if (vvixVal != null && prevVvix != null) {
       const vvixDelta = vvixVal - prevVvix;
@@ -987,7 +996,7 @@ async function autoRefresh() {
         liveEvents.unshift({
           time: timeStr,
           cls: 'le-danger',
-          msg: `⚡ VVIX 급등 감지 +${vvixDelta.toFixed(1)}pt (${prevVvix.toFixed(1)} → ${vvixVal.toFixed(1)}) — VIX 본격 상승 약 1시간 선행 신호`
+          msg: `⚡ VVIX 급등 +${vvixDelta.toFixed(1)}pt (${prevVvix.toFixed(1)}→${vvixVal.toFixed(1)}) — VIX 본격 상승 약 1시간 선행 신호`
         });
         if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
       }
@@ -1297,12 +1306,9 @@ function render(d){
         <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
         <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
       </div>
-      <div class="vc-outer-wrap" id="vc-outer-wrap">
-        <div class="vc-yaxis-fixed" id="vc-yaxis-fixed"><canvas id="vc-yaxis-canvas"></canvas></div>
-        <div class="vc-scroll-wrap" id="vc-scroll-wrap">
-          <div class="vc-chart-inner" id="vc-chart-inner">
-            <canvas id="vc-chart"></canvas>
-          </div>
+      <div class="vc-scroll-wrap" id="vc-scroll-wrap">
+        <div class="vc-chart-inner" id="vc-chart-inner">
+          <canvas id="vc-chart"></canvas>
         </div>
       </div>
     </div>
@@ -1316,11 +1322,8 @@ function render(d){
       <span class="zoom-val" id="zoom-val">1×</span>
       <span class="scroll-hint">← 가로 스크롤 →</span>
     </div>
-    <div class="chart-outer-wrap" id="chart-outer-wrap">
-      <div class="chart-yaxis-fixed" id="chart-yaxis-fixed"><canvas id="chart-yaxis-canvas"></canvas></div>
-      <div class="chart-scroll-wrap" id="chart-scroll-wrap">
-        <div class="chart-inner" id="chart-inner"><canvas id="mainchart"></canvas></div>
-      </div>
+    <div class="chart-scroll-wrap" id="chart-scroll-wrap">
+      <div class="chart-inner" id="chart-inner"><canvas id="mainchart"></canvas></div>
     </div>
   </div>
 
@@ -1386,31 +1389,6 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
   const baseW=wrap.clientWidth||window.innerWidth-56;
   inner.style.width=Math.max(baseW, baseW*zoomLevel)+'px';
 
-  // 고정 y축 플러그인
-  const stickyMainYPlugin = {
-    id: 'stickyMainY',
-    afterRender(chart) {
-      const fixedDiv = document.getElementById('chart-yaxis-fixed');
-      if (!fixedDiv) return;
-      const yScale = chart.scales['y'];
-      if (!yScale) return;
-      const chartCanvas = chart.canvas;
-      const dpr = window.devicePixelRatio || 1;
-      const W = 58, H = chartCanvas.offsetHeight;
-      let fc = document.getElementById('chart-yaxis-canvas');
-      if (!fc) return;
-      fixedDiv.style.height = H + 'px';
-      fc.width = W * dpr;
-      fc.height = H * dpr;
-      fc.style.width = W + 'px';
-      fc.style.height = H + 'px';
-      const fctx = fc.getContext('2d');
-      fctx.clearRect(0, 0, W * dpr, H * dpr);
-      const srcW = Math.round(yScale.right * dpr);
-      fctx.drawImage(chartCanvas, 0, 0, srcW, chartCanvas.height, 0, 0, srcW / dpr, H);
-    }
-  };
-
   chartInst=new Chart(document.getElementById('mainchart'),{
     data:{
       labels:chartData.map(s=>s.strike%5===0?'$'+s.strike:''),
@@ -1462,7 +1440,7 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
           grid:{color:'rgba(48,54,61,.7)'},
           afterDataLimits(scale) {
             const range = scale.max - scale.min;
-            const pad = range === 0 ? Math.abs(scale.max)*0.2||100 : range * 0.12;
+            const pad = range === 0 ? (Math.abs(scale.max)*0.2||100) : range * 0.12;
             scale.min -= pad;
             scale.max += pad;
           }
@@ -1492,8 +1470,57 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
         },
       }
     },
-    plugins:[stickyMainYPlugin]
+    plugins:[{
+      // ── OI GEX 차트 y축 스크롤 고정 플러그인 ──
+      id: 'mainStickyY',
+      afterDraw(chart) {
+        const wrap = document.getElementById('chart-scroll-wrap');
+        if (!wrap) return;
+        const yScale = chart.scales['y'];
+        const y2Scale = chart.scales['y2'];
+        if (!yScale) return;
+        const scrollX = wrap.scrollLeft;
+        if (scrollX === 0) return;
+        const { ctx, chartArea, height } = chart;
+        const axisW = yScale.right;
+        ctx.save();
+        ctx.fillStyle = '#161b22';
+        ctx.fillRect(scrollX, 0, axisW, height);
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#6e7681';
+        ctx.font = '11px monospace';
+        yScale.ticks.forEach((tick, i) => {
+          const y = yScale.getPixelForTick(i);
+          const abs = Math.abs(tick.value);
+          const sign = tick.value < 0 ? '-' : '';
+          let label = abs >= 1000000 ? sign+Math.round(abs/1e6)+'M' : abs >= 1000 ? sign+Math.round(abs/1000)+'K' : String(tick.value);
+          ctx.fillText(label, scrollX + axisW - 4, y);
+          ctx.strokeStyle = 'rgba(48,54,61,.7)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(scrollX + axisW, y);
+          ctx.lineTo(scrollX + axisW + 4, y);
+          ctx.stroke();
+        });
+        ctx.strokeStyle = '#30363d';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(scrollX + axisW, chartArea.top);
+        ctx.lineTo(scrollX + axisW, chartArea.bottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }]
   });
+
+  // 스크롤 시 y축 재드로우
+  const mainWrap = document.getElementById('chart-scroll-wrap');
+  if (mainWrap) {
+    mainWrap._scrollHandler && mainWrap.removeEventListener('scroll', mainWrap._scrollHandler);
+    mainWrap._scrollHandler = () => { if (chartInst) chartInst.draw(); };
+    mainWrap.addEventListener('scroll', mainWrap._scrollHandler, { passive: true });
+  }
 }
 
 function updateZoom(val){
