@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v6.13</title>
+<title>딜러 리스크 대시보드 v6.14</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -201,7 +201,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.13 · CBOE · <span style="color:#3fb950">BS Gamma</span></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.14 · CBOE · <span style="color:#3fb950">FlipZone Fix</span></div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -339,7 +339,7 @@ function calcForceBalance(vc, d, vix, vvix) {
     vanna: { strength: vannaStrength, dir: vannaDir, active: vannaActive, value: totalVanna, vixChange },
     charm: { strength: charmStrength, dir: charmDir, active: charmActive, value: totalCharm },
     gex: { strength: gexStrength, dir: gexDir, value: localGEX/1e6 },
-    flipDist, flipDanger,
+    flipDist, flipDanger, flipZone,
     estHour, isAfternoon
   };
 }
@@ -351,7 +351,7 @@ function getBarColor(pct) {
 }
 
 function renderGreekMetrics(force) {
-  const { vanna, charm, gex, flipDist, flipDanger } = force;
+  const { vanna, charm, gex, flipDist, flipDanger, flipZone } = force;
 
   // ── Vanna 신호등 ──
   // 5분 전 대비 절대값 변화로 판단
