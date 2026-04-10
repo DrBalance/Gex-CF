@@ -709,12 +709,11 @@ function renderVCChart() {
         if (!yScale) return;
         const scrollX = wrap.scrollLeft;
         const wrapW = wrap.clientWidth;
-        if (scrollX === 0 && wrapW >= chart.width) return;
         const { ctx, chartArea, height, width } = chart;
 
         ctx.save();
 
-        // ── 왼쪽 y축 고정 ──
+        // ── 왼쪽 y축 고정 (스크롤 시만) ──
         if (scrollX > 0) {
           const axisW = yScale.right;
           ctx.fillStyle = '#161b22';
@@ -735,11 +734,11 @@ function renderVCChart() {
           ctx.stroke();
         }
 
-        // ── 오른쪽 yVix축 고정 ──
-        if (yVixScale && scrollX > 0) {
-          const rAxisStart = yVixScale.left; // 오른쪽 축 시작 x
-          const rAxisW = width - rAxisStart;  // 오른쪽 축 너비
-          const fixedRX = scrollX + wrapW - rAxisW; // 뷰포트 오른쪽 끝에 붙임
+        // ── 오른쪽 yVix축 고정 (확대/스크롤 모두 항상 표시) ──
+        if (yVixScale && (scrollX > 0 || wrapW < width)) {
+          const rAxisStart = yVixScale.left;
+          const rAxisW = width - rAxisStart;
+          const fixedRX = scrollX + wrapW - rAxisW;
           ctx.fillStyle = '#161b22';
           ctx.fillRect(fixedRX, 0, rAxisW, height);
           ctx.textAlign = 'left';
@@ -748,8 +747,7 @@ function renderVCChart() {
           ctx.font = '10px monospace';
           yVixScale.ticks.forEach((tick, i) => {
             const y = yVixScale.getPixelForTick(i);
-            const label = tick.value?.toFixed(1) ?? '';
-            ctx.fillText(label, fixedRX + 4, y);
+            ctx.fillText(tick.value?.toFixed(1) ?? '', fixedRX + 4, y);
           });
           ctx.strokeStyle = '#30363d';
           ctx.lineWidth = 1;
@@ -1545,12 +1543,11 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
         if (!yScale) return;
         const scrollX = wrap.scrollLeft;
         const wrapW = wrap.clientWidth;
-        if (scrollX === 0 && wrapW >= chart.width) return;
         const { ctx, chartArea, height, width } = chart;
 
         ctx.save();
 
-        // ── 왼쪽 y축 고정 ──
+        // ── 왼쪽 y축 고정 (스크롤 시만) ──
         if (scrollX > 0) {
           const axisW = yScale.right;
           ctx.fillStyle = '#161b22';
@@ -1576,8 +1573,8 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
           ctx.stroke();
         }
 
-        // ── 오른쪽 y2축 고정 ──
-        if (y2Scale && scrollX > 0) {
+        // ── 오른쪽 y2축 고정 (확대/스크롤 모두 항상 표시) ──
+        if (y2Scale && (scrollX > 0 || wrapW < width)) {
           const rAxisStart = y2Scale.left;
           const rAxisW = width - rAxisStart;
           const fixedRX = scrollX + wrapW - rAxisW;
