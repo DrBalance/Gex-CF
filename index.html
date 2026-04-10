@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v6.11</title>
+<title>딜러 리스크 대시보드 v6.13</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -201,7 +201,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.12 · CBOE · <span style="color:#3fb950">GEX Fix2</span></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.13 · CBOE · <span style="color:#3fb950">BS Gamma</span></div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -1025,11 +1025,27 @@ async function loadData() {
     });
 
     const strikes=Object.values(map).sort((a,b)=>a.strike-b.strike);
+
+    // 만기까지 남은 시간 (년 단위)
+    const msToExp2 = new Date(exp) - new Date();
+    const T2 = Math.max(msToExp2 / (1000*60*60*24*365), 1/365);
+    const r2 = 0.045;
+
     strikes.forEach(s=>{
-      s.gex=(s.callOI*s.callGamma-s.putOI*s.putGamma)*100*spotPrice;
       s.iv=s.ivN>0?s.ivSum/s.ivN:0;
-      s.callHedge=s.callGamma*s.callOI*100*spotPrice;
-      s.putHedge=s.putGamma*s.putOI*100*spotPrice;
+
+      // CBOE Gamma는 딥OTM에서 신뢰 불가 → BS로 직접 계산
+      const K2 = s.strike;
+      const sigma2 = s.iv > 0 ? s.iv : 0.20;
+      const sqrtT2 = Math.sqrt(T2);
+      const d1_2 = (Math.log(spotPrice/K2) + (r2 + sigma2*sigma2/2)*T2) / (sigma2*sqrtT2);
+      const nd1_2 = Math.exp(-d1_2*d1_2/2) / Math.sqrt(2*Math.PI);
+      const bsGamma = isFinite(nd1_2) ? nd1_2 / (spotPrice * sigma2 * sqrtT2) : 0;
+
+      // 표준 GEX 공식: (callOI - putOI) × Gamma × 100 × spot
+      s.gex = (s.callOI - s.putOI) * bsGamma * 100 * spotPrice;
+      s.callHedge = bsGamma * s.callOI * 100 * spotPrice;
+      s.putHedge  = bsGamma * s.putOI  * 100 * spotPrice;
     });
 
     let cum=0,flipZone=null;
