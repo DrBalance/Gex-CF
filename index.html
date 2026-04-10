@@ -271,11 +271,11 @@ function updateVIXMetrics() {
   const vvm = document.getElementById('metric-vvix');
   if (vm && vixVal != null) {
     vm.querySelector('.val').textContent = vixVal.toFixed(2);
-    vm.className = 'metric' + (vixVal>30?' danger':vixVal>20?' warn':'');
+    vm.className = 'metric ' + (vixVal>30?'danger':vixVal>20?'warn':'yellow');
   }
   if (vvm && vvixVal != null) {
     vvm.querySelector('.val').textContent = vvixVal.toFixed(2);
-    vvm.className = 'metric' + (vvixVal>130?' danger':vvixVal>110?' warn':'');
+    vvm.className = 'metric ' + (vvixVal>130?'danger':vvixVal>110?'warn':'yellow');
   }
 }
 
@@ -1254,8 +1254,8 @@ function render(d){
       <div class="metric red"><div class="val">${putWall?'$'+putWall:'—'}</div><div class="lbl">Put Wall</div></div>
       <div class="metric green"><div class="val">${callWall?'$'+callWall:'—'}</div><div class="lbl">Call Wall</div></div>
       <div class="metric ${localGEX<0?'red':'green'}"><div class="val">${(localGEX/1e6).toFixed(1)}M</div><div class="lbl">Local GEX</div></div>
-      <div class="metric ${vixCls}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
-      <div class="metric ${vvixCls}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
+      <div class="metric ${vixVal&&vixVal>30?'danger':vixVal&&vixVal>20?'warn':'yellow'}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
+      <div class="metric ${vvixVal&&vvixVal>130?'danger':vvixVal&&vvixVal>110?'warn':'yellow'}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
       <div class="metric" id="metric-vanna" style="border-color:#bc8cff55"><div class="val" style="color:#bc8cff">${vc.totalVanna.toFixed(1)}M</div><div class="lbl" style="color:#bc8cff">● Vanna Exp</div></div>
       <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${vc.totalCharm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm Exp</div></div>
     </div>
@@ -1512,6 +1512,31 @@ function buildChart(chartData, sp, flipZone, putWall, callWall) {
       }
     },
     plugins:[{
+      // ── 현재가 세로 점선 ──
+      id: 'spotLine',
+      afterDraw(chart) {
+        const spotIdx = chartData.findIndex(s => Math.abs(s.strike - sp) < 0.5);
+        if (spotIdx < 0) return;
+        const { ctx, chartArea } = chart;
+        const x = chart.scales.x.getPixelForValue(spotIdx);
+        ctx.save();
+        ctx.strokeStyle = '#58a6ff';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+        // 상단 라벨
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#58a6ff';
+        ctx.font = 'bold 11px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText('$' + sp.toFixed(0), x, chartArea.top - 2);
+        ctx.restore();
+      }
+    },{
       // ── 호버 시 GEX 라인 붉은 점 ──
       id: 'hoverDot',
       afterDraw(chart) {
