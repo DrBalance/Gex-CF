@@ -368,7 +368,7 @@ async function handleGreeks(url, env) {
       });
       const strikes = Object.values(map).sort((a, b) => a.strike - b.strike);
       strikes.forEach(s => {
-        s.gex = (s.callOI * s.callGamma - s.putOI * s.putGamma) * 100 * spotPrice * spotPrice * 0.01;
+        s.gex = (s.callOI * s.callGamma - s.putOI * s.putGamma) * 100 * spotPrice;
         s.iv = s.ivN > 0 ? s.ivSum / s.ivN : 0;
       });
 
