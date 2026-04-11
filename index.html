@@ -230,6 +230,9 @@ tr.flip td{background:rgba(240,136,62,.06)}
   <button class="tab-btn" id="tab-date" onclick="switchTab('date')">
     날짜 조회
   </button>
+  <button class="tab-btn" id="tab-screener" onclick="switchTab('screener')">
+    📡 스크리너
+  </button>
 </div>
 
 <!-- 0DTE 컨트롤 바 -->
@@ -276,6 +279,56 @@ tr.flip td{background:rgba(240,136,62,.06)}
 </div>
 
 <!-- 날짜 조회 영역 -->
+
+<!-- 스크리너 영역 -->
+<div id="area-screener" style="display:none">
+  <div class="main">
+    <div class="card" style="padding:20px 24px">
+
+      <!-- 헤더 -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:16px;font-weight:700;color:var(--text1)">
+          📡 Options Screener
+          <span style="font-size:12px;font-weight:400;color:var(--text3);margin-left:8px">
+            기관 플로우 이상 감지
+          </span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="screener-type" onchange="loadScreener()"
+            style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);
+                   padding:4px 10px;border-radius:5px;font-size:13px;cursor:pointer">
+            <option value="all">전체</option>
+            <option value="etf">ETF만</option>
+            <option value="stock">개별주만</option>
+          </select>
+          <button onclick="loadScreener()"
+            style="background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-dim);
+                   padding:4px 14px;border-radius:5px;font-size:13px;cursor:pointer;font-weight:600">
+            새로고침
+          </button>
+          <span id="screener-time" style="font-size:12px;color:var(--text3)"></span>
+        </div>
+      </div>
+
+      <!-- 범례 -->
+      <div style="display:flex;gap:16px;margin-bottom:16px;font-size:12px;color:var(--text3)">
+        <span>🟢 Call 쏠림 (z>2)</span>
+        <span>🔴 Put 쏠림 (z<-2)</span>
+        <span>🟡 중립</span>
+        <span style="margin-left:auto">IV Skew: 양수=Call skew / 음수=Put skew</span>
+      </div>
+
+      <!-- 결과 영역 -->
+      <div id="screener-result">
+        <div style="text-align:center;padding:40px;color:var(--text3)">
+          데이터 로딩 중...
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <div id="area-date" style="display:none">
   <div class="main" id="main-area">
     <div class="card">
@@ -308,20 +361,165 @@ let current0DTESym = 'SPY';
 
 // ── 탭 전환 ──
 function switchTab(tab) {
-  const is0dte = tab === '0dte';
-  document.getElementById('tab-0dte').className  = 'tab-btn' + (is0dte  ? ' active' : '');
-  document.getElementById('tab-date').className  = 'tab-btn' + (!is0dte ? ' active' : '');
-  document.getElementById('ctrl-0dte').style.display  = is0dte  ? '' : 'none';
-  document.getElementById('ctrl-date').style.display  = !is0dte ? '' : 'none';
-  document.getElementById('area-0dte').style.display  = is0dte  ? '' : 'none';
-  document.getElementById('area-date').style.display  = !is0dte ? '' : 'none';
+  // 탭 버튼 상태 업데이트
+  ['0dte','date','screener'].forEach(t => {
+    const el = document.getElementById('tab-' + t);
+    if (el) el.className = 'tab-btn' + (t === tab ? ' active' : '');
+  });
+  // 컨트롤 바
+  const ctrl0 = document.getElementById('ctrl-0dte');
+  const ctrlD = document.getElementById('ctrl-date');
+  if (ctrl0) ctrl0.style.display = tab === '0dte' ? '' : 'none';
+  if (ctrlD) ctrlD.style.display = tab === 'date' ? '' : 'none';
+  // 콘텐츠 영역
+  const area0 = document.getElementById('area-0dte');
+  const areaD = document.getElementById('area-date');
+  const areaS = document.getElementById('area-screener');
+  if (area0) area0.style.display = tab === '0dte'     ? '' : 'none';
+  if (areaD) areaD.style.display = tab === 'date'     ? '' : 'none';
+  if (areaS) areaS.style.display = tab === 'screener' ? '' : 'none';
   // 날짜 탭 최초 진입 시 만기 목록 로드
-  if (!is0dte && !allOptions.length) loadExpirations();
+  if (tab === 'date' && !allOptions.length) loadExpirations();
+  // 스크리너 탭 최초 진입 시 데이터 로드
+  if (tab === 'screener') loadScreener();
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 0DTE 메인 — 서버 계산 결과 수신 & 렌더
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 스크리너 — 데이터 로드 & 렌더
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const API_BASE = 'https://api.drbalance.xyz';
+let screenerLoaded = false;
+
+async function loadScreener() {
+  const type = document.getElementById('screener-type')?.value || 'all';
+  const resultEl = document.getElementById('screener-result');
+  const timeEl   = document.getElementById('screener-time');
+
+  if (resultEl) resultEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3)">로딩 중...</div>';
+
+  try {
+    const res  = await fetch(`${API_BASE}/api/screener?type=${type}`);
+    const data = await res.json();
+
+    if (data.error) throw new Error(data.error);
+
+    if (timeEl) timeEl.textContent = '기준일: ' + data.date;
+
+    // 데이터 없을 때
+    if (data.total === 0) {
+      if (resultEl) resultEl.innerHTML = `
+        <div style="text-align:center;padding:40px;color:var(--text3)">
+          <div style="font-size:24px;margin-bottom:8px">📭</div>
+          <div>오늘 수집된 데이터가 없습니다</div>
+          <div style="font-size:12px;margin-top:4px">장 마감 후 자동 수집됩니다 (21:00 UTC)</div>
+        </div>`;
+      return;
+    }
+
+    // 섹터별 렌더
+    let html = '';
+    const sectorNames = {
+      broad_market: '🌐 시장 전체', technology: '💻 기술',
+      energy: '⛽ 에너지', financial: '🏦 금융',
+      healthcare: '💊 헬스케어', industrial: '🏗 산업재',
+      utilities: '⚡ 유틸리티', staples: '🛒 필수소비재',
+      discretionary: '🛍 임의소비재'
+    };
+
+    for (const [sector, items] of Object.entries(data.sectors)) {
+      const sectorLabel = sectorNames[sector] || sector;
+      html += `<div style="margin-bottom:24px">`;
+      html += `<div style="font-size:13px;font-weight:700;color:var(--text2);
+               margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)">
+               ${sectorLabel}</div>`;
+
+      // ETF 먼저
+      const allRows = [...(items.etf||[]), ...(items.stocks||[])];
+      if (!allRows.length) continue;
+
+      html += `<div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="color:var(--text3);border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:4px 8px;width:70px">종목</th>
+              <th style="text-align:left;padding:4px 8px;width:50px">구분</th>
+              <th style="text-align:right;padding:4px 8px">만기</th>
+              <th style="text-align:right;padding:4px 8px">DTE</th>
+              <th style="text-align:right;padding:4px 8px">Call OI</th>
+              <th style="text-align:right;padding:4px 8px">Put OI</th>
+              <th style="text-align:right;padding:4px 8px">PCR</th>
+              <th style="text-align:right;padding:4px 8px">Z-Score</th>
+              <th style="text-align:right;padding:4px 8px">IV Skew</th>
+              <th style="text-align:right;padding:4px 8px">신호</th>
+            </tr>
+          </thead>
+          <tbody>`;
+
+      for (const r of allRows) {
+        const zscore  = r.oi_zscore || 0;
+        const skew    = r.iv_skew || 0;
+        const isEtf   = r.type === 'etf';
+
+        // 신호 판단
+        let signal = '🟡';
+        let rowBg  = 'transparent';
+        if (zscore > 2  && skew > 0) { signal = '🟢 Call 급증'; rowBg = 'rgba(63,185,80,0.05)'; }
+        else if (zscore > 2)          { signal = '🟢 OI 급증';   rowBg = 'rgba(63,185,80,0.05)'; }
+        else if (zscore < -2)         { signal = '🔴 Put 급증';  rowBg = 'rgba(248,81,73,0.05)'; }
+        else if (skew > 0.05)         { signal = '📈 Call Skew'; }
+        else if (skew < -0.05)        { signal = '📉 Put Skew';  }
+
+        const zColor = zscore > 2 ? 'var(--green)' : zscore < -2 ? 'var(--red)' : 'var(--text2)';
+        const skewColor = skew > 0.02 ? 'var(--green)' : skew < -0.02 ? 'var(--red)' : 'var(--text2)';
+
+        html += `<tr style="border-bottom:1px solid var(--border);background:${rowBg}">
+          <td style="padding:5px 8px;font-weight:${isEtf?'700':'400'};color:var(--text1)">
+            ${r.symbol}
+          </td>
+          <td style="padding:5px 8px;color:var(--text3)">
+            ${isEtf ? 'ETF' : '주식'}
+          </td>
+          <td style="padding:5px 8px;text-align:right;color:var(--text2)">${r.expiry_date||'-'}</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--text3)">${r.dte||'-'}일</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--text2)">${fmt(r.call_oi)}</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--text2)">${fmt(r.put_oi)}</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--text2)">${r.pcr_oi?.toFixed(2)||'-'}</td>
+          <td style="padding:5px 8px;text-align:right;color:${zColor};font-weight:600">
+            ${zscore > 0 ? '+' : ''}${zscore.toFixed(1)}
+          </td>
+          <td style="padding:5px 8px;text-align:right;color:${skewColor}">
+            ${skew > 0 ? '+' : ''}${(skew*100).toFixed(1)}%
+          </td>
+          <td style="padding:5px 8px;text-align:right">${signal}</td>
+        </tr>`;
+      }
+
+      html += `</tbody></table></div></div>`;
+    }
+
+    if (resultEl) resultEl.innerHTML = html;
+    screenerLoaded = true;
+
+  } catch (err) {
+    if (resultEl) resultEl.innerHTML = `
+      <div style="text-align:center;padding:40px;color:var(--red)">
+        <div style="font-size:20px;margin-bottom:8px">⚠️</div>
+        <div>${err.message}</div>
+      </div>`;
+  }
+}
+
+function fmt(n) {
+  if (!n) return '-';
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000)    return (n/1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
 async function load0DTE() {
   const sym = document.getElementById('sym-select-0dte').value;
   current0DTESym = sym;
