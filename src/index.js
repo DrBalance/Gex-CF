@@ -1,10 +1,16 @@
-// GEX Dashboard - Cloudflare Workers v2 (v6.11 - GEX Fix: callOI*callGamma - putOI*putGamma)
+// GEX Dashboard - Cloudflare Workers (v7.1 - MD App VIX 실시간 + RSI 다이버전스)
 // 엔드포인트:
 //   /api/options?symbol=SPY              → CBOE (초기 로드, 무료)
-//   /api/options?symbol=SPY&mode=cached  → Market Data App mode=cached (유료 전환 후 자동갱신)
+//   /api/options?symbol=SPY&mode=cached  → Market Data App (유료)
 //   /api/price                           → Yahoo Finance 현재가
-//   /api/vix                             → Yahoo Finance VIX/VVIX
+//   /api/vix                             → Market Data App 실시간 VIX/VVIX (Yahoo 폴백)
 //   /api/vannacharm                      → VannaCharm API
+//   /api/gex0dte                         → Cron 계산 결과 (KV 읽기 전용)
+//
+// MD App indices/quotes 응답:
+//   { "s":"ok", "symbol":["VIX"], "last":[29.92], "updated":[unix] }
+//   last[0] = 현재가 (숫자 단위, VIX=29.92 형태 — Yahoo와 동일)
+//   prevClose 없음 → KV에 전일 종가 별도 저장
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -240,40 +246,90 @@ async function handlePrice(url, env) {
   }
 }
 
-// ── /api/vix ──
+// ── /api/vix — Market Data App 실시간 (Yahoo 폴백) ──
+// MD App 응답: { "s":"ok", "symbol":["VIX"], "last":[29.92], "updated":[unix] }
+// last[0] = 현재가 숫자 (VIX 29.92, VVIX 110.5 형태 — Yahoo와 동일 단위)
+// prevClose: MD App 미제공 → KV 날짜별 저장으로 보완
 async function handleVix(url, env) {
   const symbols = (url.searchParams.get('symbols') || 'VIX,VVIX')
     .split(',').slice(0, 5).map(s => s.trim().toUpperCase());
 
-  try {
-    const data = await withCache(env, `vix:${symbols.join(',')}`, 60, async () => {
-      const results = {};
-      await Promise.all(symbols.map(async (sym) => {
-        try {
-          const r = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/%5E${sym}?interval=1m&range=1d`,
-            { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
-          );
-          const j = await r.json();
-          const meta = j?.chart?.result?.[0]?.meta;
-          if (!meta) throw new Error('No meta');
-          results[sym] = {
-            price: meta.regularMarketPrice,
-            prevClose: meta.chartPreviousClose,
-            pctChange: meta.regularMarketPrice && meta.chartPreviousClose
-              ? +((meta.regularMarketPrice - meta.chartPreviousClose) / meta.chartPreviousClose * 100).toFixed(2)
-              : null,
-          };
-        } catch (e) {
-          results[sym] = { error: e.message };
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const todayStr = nowEST.toLocaleDateString('en-CA');
+  const results = {};
+
+  await Promise.all(symbols.map(async (sym) => {
+    try {
+      // 1. Market Data App 실시간 (캐시 없이 직접 호출)
+      let price = null, updatedAt = null;
+      try {
+        const mdR = await fetch(
+          `https://api.marketdata.app/v1/indices/quotes/${sym}/`,
+          {
+            headers: {
+              'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`,
+              'Accept': 'application/json',
+            },
+            signal: AbortSignal.timeout(6000),
+          }
+        );
+        if (mdR.ok) {
+          const mdJ = await mdR.json();
+          // last[0] 이 현재가. 단위: VIX=29.92, VVIX=110.5 (% 아님, 그대로 사용)
+          if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
+            price = mdJ.last[0];
+            updatedAt = mdJ.updated?.[0] ?? null;
+          }
         }
-      }));
-      return results;
-    });
-    return json(data);
-  } catch (err) {
-    return json({ error: err.message }, 500);
-  }
+      } catch (mdErr) {
+        console.warn(`MD App ${sym} failed: ${mdErr.message}`);
+      }
+
+      // 2. MD App 실패 시 Yahoo 폴백
+      if (price == null) {
+        const yR = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/%5E${sym}?interval=1m&range=1d`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
+        );
+        const yJ = await yR.json();
+        const meta = yJ?.chart?.result?.[0]?.meta;
+        if (!meta) throw new Error('No data');
+        price = meta.regularMarketPrice;
+      }
+
+      // 3. prevClose: KV에서 전일 종가 조회
+      const prevCloseKey = `vix_prev:${sym}`;
+      let prevClose = null;
+      try {
+        const stored = await env.CACHE.get(prevCloseKey);
+        if (stored) {
+          const obj = JSON.parse(stored);
+          if (obj.date !== todayStr) prevClose = obj.price; // 어제 데이터면 사용
+        }
+      } catch (_) {}
+
+      // 장 종료(16:00 EST) 이후 오늘 종가 저장 → 내일의 prevClose
+      const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+      if (estHour >= 16 && price != null) {
+        try {
+          await env.CACHE.put(prevCloseKey,
+            JSON.stringify({ date: todayStr, price }),
+            { expirationTtl: 86400 * 3 }
+          );
+        } catch (_) {}
+      }
+
+      const pctChange = (price != null && prevClose != null)
+        ? +((price - prevClose) / prevClose * 100).toFixed(2)
+        : null;
+
+      results[sym] = { price, prevClose, pctChange, updatedAt, source: 'marketdata' };
+    } catch (e) {
+      results[sym] = { error: e.message };
+    }
+  }));
+
+  return json(results);
 }
 
 // ── /api/vannacharm ──
