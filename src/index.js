@@ -1,4 +1,13 @@
-// GEX Dashboard - Cloudflare Workers (v7.1 - MD App VIX 실시간 + RSI 다이버전스)
+// GEX Dashboard - Cloudflare Workers (v7.2 - Options Screener 추가)
+// 엔드포인트:
+//   /api/options      → CBOE 옵션 데이터
+//   /api/price        → Yahoo Finance 현재가
+//   /api/vix          → VIX/VVIX
+//   /api/vannacharm   → VannaCharm API
+//   /api/gex0dte      → 0DTE GEX
+//   /api/screener     → Options Screener (D1)
+//   /api/init-db      → DB 초기화 (최초 1회)
+
 // 엔드포인트:
 //   /api/options?symbol=SPY              → CBOE (초기 로드, 무료)
 //   /api/options?symbol=SPY&mode=cached  → Market Data App (유료)
@@ -618,39 +627,168 @@ async function handleGex0DTE(url, env) {
   }
 }
 
-// 25002500 DB Cd08Ae30D654 25002500
-import { handleInitDb } from "./init-db.js";
 
-// 25002500 Screener API D578B4e4B7ec 25002500
-import {
-  getActiveSymbols,
-  fetchOptionsData,
-  saveOptionsFlow,
-  updateBaseline,
-  getScreenerResults
-} from './screener.js';
+// ────────────────────────────────────────────
+// DB 초기화 핸들러 (/api/init-db)
+// ────────────────────────────────────────────
+async function handleInitDb(url, env) {
+  const secret = url.searchParams.get('secret');
+  if (secret !== 'drbalance-init-2026') {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
+  const results = [];
+
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS symbols (
+      symbol      TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      type        TEXT NOT NULL,
+      sector      TEXT NOT NULL,
+      sector_etf  TEXT,
+      is_active   INTEGER DEFAULT 1,
+      added_date  TEXT DEFAULT (date('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS options_flow (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      date        TEXT NOT NULL,
+      symbol      TEXT NOT NULL,
+      expiry_date TEXT NOT NULL,
+      dte         INTEGER NOT NULL,
+      call_vol    INTEGER DEFAULT 0,
+      put_vol     INTEGER DEFAULT 0,
+      call_oi     INTEGER DEFAULT 0,
+      put_oi      INTEGER DEFAULT 0,
+      pcr_vol     REAL,
+      pcr_oi      REAL,
+      atm_iv      REAL,
+      otm_call_iv REAL,
+      otm_put_iv  REAL,
+      stock_vol   INTEGER DEFAULT 0,
+      UNIQUE(date, symbol, expiry_date)
+    )`,
+    `CREATE TABLE IF NOT EXISTS options_baseline (
+      symbol          TEXT PRIMARY KEY,
+      updated_date    TEXT NOT NULL,
+      avg_call_vol    REAL DEFAULT 0,
+      avg_put_vol     REAL DEFAULT 0,
+      avg_stock_vol   REAL DEFAULT 0,
+      avg_call_oi     REAL DEFAULT 0,
+      avg_put_oi      REAL DEFAULT 0,
+      avg_pcr_vol     REAL DEFAULT 1.0,
+      avg_pcr_oi      REAL DEFAULT 1.0,
+      avg_atm_iv      REAL DEFAULT 0,
+      avg_otm_call_iv REAL DEFAULT 0,
+      avg_otm_put_iv  REAL DEFAULT 0,
+      std_call_vol    REAL DEFAULT 1,
+      std_call_oi     REAL DEFAULT 1,
+      std_pcr_oi      REAL DEFAULT 0.1,
+      std_otm_call_iv REAL DEFAULT 0.01
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_flow_date_symbol ON options_flow(date, symbol)`,
+    `CREATE INDEX IF NOT EXISTS idx_flow_symbol_expiry ON options_flow(symbol, expiry_date)`,
+    `CREATE INDEX IF NOT EXISTS idx_flow_date_dte ON options_flow(date, dte)`,
+    `INSERT OR IGNORE INTO symbols VALUES
+      ('SPY','SPDR S&P 500 ETF','etf','broad_market',NULL,1,date('now')),
+      ('QQQ','Invesco QQQ Trust','etf','technology',NULL,1,date('now')),
+      ('XLK','Technology Select Sector','etf','technology',NULL,1,date('now')),
+      ('XLE','Energy Select Sector','etf','energy',NULL,1,date('now')),
+      ('XLF','Financial Select Sector','etf','financial',NULL,1,date('now')),
+      ('XLV','Health Care Select Sector','etf','healthcare',NULL,1,date('now')),
+      ('XLI','Industrial Select Sector','etf','industrial',NULL,1,date('now')),
+      ('XLU','Utilities Select Sector','etf','utilities',NULL,1,date('now')),
+      ('XLP','Consumer Staples Sector','etf','staples',NULL,1,date('now')),
+      ('XLY','Consumer Discretionary','etf','discretionary',NULL,1,date('now'))`,
+    `INSERT OR IGNORE INTO symbols VALUES
+      ('AAPL','Apple Inc.','stock','technology','XLK',1,date('now')),
+      ('MSFT','Microsoft Corp.','stock','technology','XLK',1,date('now')),
+      ('NVDA','NVIDIA Corp.','stock','technology','XLK',1,date('now')),
+      ('GOOGL','Alphabet Inc.','stock','technology','XLK',1,date('now')),
+      ('META','Meta Platforms Inc.','stock','technology','XLK',1,date('now')),
+      ('AMD','Advanced Micro Devices','stock','technology','XLK',1,date('now')),
+      ('AVGO','Broadcom Inc.','stock','technology','XLK',1,date('now')),
+      ('XOM','Exxon Mobil Corp.','stock','energy','XLE',1,date('now')),
+      ('OXY','Occidental Petroleum','stock','energy','XLE',1,date('now')),
+      ('CVX','Chevron Corp.','stock','energy','XLE',1,date('now')),
+      ('JPM','JPMorgan Chase & Co.','stock','financial','XLF',1,date('now')),
+      ('BAC','Bank of America Corp.','stock','financial','XLF',1,date('now')),
+      ('GS','Goldman Sachs Group','stock','financial','XLF',1,date('now')),
+      ('UNH','UnitedHealth Group','stock','healthcare','XLV',1,date('now')),
+      ('LLY','Eli Lilly and Company','stock','healthcare','XLV',1,date('now')),
+      ('CAT','Caterpillar Inc.','stock','industrial','XLI',1,date('now')),
+      ('GE','GE Aerospace','stock','industrial','XLI',1,date('now')),
+      ('WMT','Walmart Inc.','stock','staples','XLP',1,date('now')),
+      ('KO','Coca-Cola Company','stock','staples','XLP',1,date('now')),
+      ('TSLA','Tesla Inc.','stock','discretionary','XLY',1,date('now'))`,
+  ];
+
+  for (const sql of statements) {
+    try {
+      await env.DB.prepare(sql).run();
+      results.push({ ok: true, preview: sql.trim().slice(0, 50) });
+    } catch (err) {
+      results.push({ ok: false, preview: sql.trim().slice(0, 50), error: err.message });
+    }
+  }
+
+  const tables = await env.DB.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`
+  ).all();
+
+  const cnt = await env.DB.prepare(
+    `SELECT COUNT(*) as n FROM symbols`
+  ).first();
+
+  return json({
+    success: true,
+    tables: tables.results.map(r => r.name),
+    symbol_count: cnt.n,
+    steps: results
+  });
+}
+
+// ────────────────────────────────────────────
+// Screener 핸들러 (/api/screener)
+// ────────────────────────────────────────────
 async function handleScreener(url, env) {
   const date = url.searchParams.get('date') || null;
-  const type = url.searchParams.get('type') || 'all'; // 'etf' | 'stock' | 'all'
+  const type = url.searchParams.get('type') || 'all';
 
   try {
-    let results = await getScreenerResults(env.DB, date);
+    const targetDate = date || new Date().toISOString().split('T')[0];
 
-    // 타입 필터
-    if (type !== 'all') {
-      results = results.filter(r => r.type === type);
-    }
+    const result = await env.DB.prepare(`
+      SELECT
+        f.symbol, s.name, s.type, s.sector, s.sector_etf,
+        f.expiry_date, f.dte,
+        f.call_oi, f.put_oi, f.pcr_oi,
+        f.otm_call_iv, f.otm_put_iv,
+        b.avg_call_oi, b.avg_pcr_oi,
+        CASE WHEN b.std_call_oi > 0
+          THEN ROUND((f.call_oi - b.avg_call_oi) / b.std_call_oi, 2)
+          ELSE 0
+        END as oi_zscore,
+        ROUND(f.otm_call_iv - f.otm_put_iv, 4) as iv_skew
+      FROM options_flow f
+      JOIN symbols s USING (symbol)
+      LEFT JOIN options_baseline b USING (symbol)
+      WHERE f.date = ?
+        AND s.is_active = 1
+        AND f.dte BETWEEN 7 AND 56
+      ORDER BY s.type DESC, s.sector, oi_zscore DESC
+    `).bind(targetDate).all();
 
-    // 섹터별 그룹핑
+    let rows = result.results;
+    if (type !== 'all') rows = rows.filter(r => r.type === type);
+
     const sectors = {};
-    for (const row of results) {
+    for (const row of rows) {
       if (!sectors[row.sector]) sectors[row.sector] = { etf: [], stocks: [] };
       if (row.type === 'etf') sectors[row.sector].etf.push(row);
       else sectors[row.sector].stocks.push(row);
     }
 
-    return json({ date: date || 'today', sectors, total: results.length });
+    return json({ date: targetDate, sectors, total: rows.length });
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -677,46 +815,13 @@ export default {
     return json({ error: 'Not found' }, 404);
   },
 
-  // ── Cron 핸들러 ──
   async scheduled(event, env, ctx) {
-    const cron = event.cron;
-
-    // 1) 장 마감 후 스크리너 데이터 수집 (21:00 UTC = 17:00 EST)
-    if (cron === '0 21 * * 1-5') {
-      console.log('[Cron] 스크리너 데이터 수집 시작');
-      try {
-        const symbols = await getActiveSymbols(env.DB);
-        let total = 0;
-
-        for (const sym of symbols) {
-          try {
-            const records = await fetchOptionsData(sym.symbol);
-            if (records?.length) {
-              await saveOptionsFlow(env.DB, records);
-              await updateBaseline(env.DB, sym.symbol);
-              total += records.length;
-              console.log(`[Screener] ${sym.symbol}: ${records.length}개 만기 저장`);
-            }
-            // API 과부하 방지
-            await new Promise(r => setTimeout(r, 300));
-          } catch (err) {
-            console.error(`[Screener] ${sym.symbol} 실패:`, err.message);
-          }
-        }
-        console.log(`[Cron] 스크리너 완료: 총 ${total}개 레코드`);
-      } catch (err) {
-        console.error('[Cron] 스크리너 전체 실패:', err.message);
-      }
-      return;
-    }
-
-    // 2) 장 중 5분마다 0DTE 계산 (기존 로직)
     const symbols = ['SPY', 'QQQ'];
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
         await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
-        console.log(`[Cron] ${sym} 0DTE computed: flipZone=${data.flipZone} localGEX=${data.localGEX}M`);
+        console.log(`[Cron] ${sym} 0DTE computed`);
       } catch (err) {
         console.error(`[Cron] ${sym} failed: ${err.message}`);
       }
