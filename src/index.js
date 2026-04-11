@@ -428,6 +428,140 @@ async function handleGreeks(url, env) {
   }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 0DTE Greek 서버 계산 (Cron에서 호출)
+// KV["gex0dte:{symbol}"] 에 저장 → 클라이언트는 읽기만
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function compute0DTE(env, symbol) {
+  // 1. CBOE 옵션 체인 fetch
+  const r = await fetch(
+    `https://cdn.cboe.com/api/global/delayed_quotes/options/${symbol}.json`,
+    {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Referer': 'https://www.cboe.com/',
+      },
+      signal: AbortSignal.timeout(12000),
+    }
+  );
+  if (!r.ok) throw new Error(`CBOE ${r.status}`);
+  const cboeJson = await r.json();
+  const spotPrice = cboeJson.data.current_price;
+  const allOptions = cboeJson.data.options;
+
+  // 2. 오늘 만기(0DTE) 추출
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const todayKey = `${String(nowEST.getFullYear()).slice(2)}${String(nowEST.getMonth()+1).padStart(2,'0')}${String(nowEST.getDate()).padStart(2,'0')}`;
+  const todayISO = nowEST.toLocaleDateString('en-CA');  // "2026-04-11"
+
+  const parsed = allOptions.filter(o => {
+    const m = o.option.trim().match(/(\d{6})[CP]/);
+    return m && m[1] === todayKey;
+  }).map(o => {
+    const m = o.option.trim().match(/(\d{6})([CP])(\d+)/);
+    if (!m) return null;
+    return { strike: parseInt(m[3])/1000, type: m[2], iv: o.iv, gamma: o.gamma, oi: o.open_interest, volume: o.volume };
+  }).filter(Boolean);
+
+  if (parsed.length === 0) throw new Error('NO_0DTE_DATA');
+
+  // 3. 스트라이크별 집계
+  const map = {};
+  parsed.forEach(o => {
+    if (!map[o.strike]) map[o.strike] = { strike: o.strike, callOI: 0, putOI: 0, callGamma: 0, putGamma: 0, callVol: 0, putVol: 0, ivSum: 0, ivN: 0 };
+    const s = map[o.strike];
+    if (o.type === 'C') { s.callOI += o.oi; s.callGamma = o.gamma; s.callVol += o.volume; }
+    else                { s.putOI  += o.oi; s.putGamma  = o.gamma; s.putVol  += o.volume; }
+    if (o.iv > 0) { s.ivSum += o.iv; s.ivN++; }
+  });
+  const strikes = Object.values(map).sort((a, b) => a.strike - b.strike);
+
+  // 4. BS Gamma + GEX + Vanna + Charm 계산
+  const msToExp = new Date(todayISO) - new Date();
+  const T = Math.max(msToExp / (1000*60*60*24*365), 1/365);
+  const safeT = Math.max(T, 0.5/365);
+  const r_rate = 0.045;
+  let totalVanna = 0, totalCharm = 0;
+
+  strikes.forEach(s => {
+    s.iv = s.ivN > 0 ? s.ivSum / s.ivN : 0;
+    const K = s.strike;
+    const sigma = s.iv > 0 ? s.iv : 0.20;
+    const sqrtT = Math.sqrt(T);
+    const safeSqrtT = Math.sqrt(safeT);
+    const d1 = (Math.log(spotPrice/K) + (r_rate + sigma*sigma/2)*T) / (sigma*sqrtT);
+    const d2 = d1 - sigma*sqrtT;
+    const nd1 = Math.exp(-d1*d1/2) / Math.sqrt(2*Math.PI);
+    const bsGamma = isFinite(nd1) ? nd1 / (spotPrice * sigma * sqrtT) : 0;
+
+    // GEX: (callOI - putOI) × gamma × 100 × spot
+    s.gex = isFinite(bsGamma) ? (s.callOI - s.putOI) * bsGamma * 100 * spotPrice : 0;
+    s.callHedge = bsGamma * s.callOI * 100 * spotPrice;
+    s.putHedge  = bsGamma * s.putOI  * 100 * spotPrice;
+
+    const netOI = s.callOI - s.putOI;
+    const vanna = nd1 * (d2 / sigma) * netOI * 100 * spotPrice;
+    totalVanna += isFinite(vanna) ? vanna : 0;
+    const charm = -nd1 * (r_rate/(sigma*safeSqrtT) - d2/(2*safeT)) * netOI * 100;
+    totalCharm += isFinite(charm) ? charm : 0;
+  });
+
+  // 5. 집계 지표
+  let cum = 0, flipZone = null;
+  strikes.forEach(s => {
+    const p = cum; cum += s.gex; s.cumGex = cum;
+    if (!flipZone && ((p < 0 && cum >= 0) || (p > 0 && cum <= 0))) flipZone = s.strike;
+  });
+  const near = strikes.filter(s => Math.abs(s.strike - spotPrice) / spotPrice < 0.10);
+  const putWall  = near.reduce((b, s) => s.putOI  > b.putOI  ? s : b, near[0])?.strike;
+  const callWall = near.reduce((b, s) => s.callOI > b.callOI ? s : b, near[0])?.strike;
+  const localGEX = strikes.filter(s => Math.abs(s.strike - spotPrice) / spotPrice < 0.02).reduce((a, s) => a + s.gex, 0);
+  const totalCallOI = strikes.reduce((a, s) => a + s.callOI, 0);
+  const totalPutOI  = strikes.reduce((a, s) => a + s.putOI,  0);
+  const pcr = totalPutOI / Math.max(totalCallOI, 1);
+  const upStrikes = strikes.filter(s => s.strike > spotPrice && s.strike <= spotPrice*1.05).sort((a,b) => b.callHedge - a.callHedge).slice(0,4);
+  const dnStrikes = strikes.filter(s => s.strike < spotPrice && s.strike >= spotPrice*0.95).sort((a,b) => b.putHedge  - a.putHedge).slice(0,4);
+
+  return {
+    symbol,
+    exp: todayISO,
+    spotPrice,
+    strikes,          // 전체 스트라이크 (차트용)
+    upStrikes,
+    dnStrikes,
+    flipZone,
+    putWall,
+    callWall,
+    localGEX: parseFloat((localGEX/1e6).toFixed(2)),
+    totalGEX:  parseFloat((cum/1e6).toFixed(2)),
+    vanna:     parseFloat((totalVanna/1e6).toFixed(2)),
+    charm:     parseFloat((totalCharm/1e6).toFixed(2)),
+    pcr:       parseFloat(pcr.toFixed(3)),
+    computedAt: new Date().toISOString(),
+    source: 'cron_computed',
+  };
+}
+
+// ── /api/gex0dte — KV 읽기 전용 (클라이언트용) ──
+async function handleGex0DTE(url, env) {
+  const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+  if (!/^[\^_A-Z0-9]{1,10}$/.test(symbol)) return json({ error: 'Invalid symbol' }, 400);
+
+  try {
+    const cached = await env.CACHE.get(`gex0dte:${symbol}`);
+    if (cached) {
+      return json(JSON.parse(cached));
+    }
+    // KV에 없으면 즉석 계산 (Cron 아직 미실행 상태)
+    const data = await compute0DTE(env, symbol);
+    await env.CACHE.put(`gex0dte:${symbol}`, JSON.stringify(data), { expirationTtl: 600 });
+    return json({ ...data, source: 'on_demand_computed' });
+  } catch (err) {
+    return json({ error: err.message, symbol }, 500);
+  }
+}
+
 // ── 메인 라우터 ──
 export default {
   async fetch(request, env) {
@@ -442,7 +576,24 @@ export default {
     if (url.pathname === '/api/vix')        return handleVix(url, env);
     if (url.pathname === '/api/vannacharm') return handleVannaCharm(url, env);
     if (url.pathname === '/api/greeks')     return handleGreeks(url, env);
+    if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
 
     return json({ error: 'Not found' }, 404);
+  },
+
+  // ── Cron: 장 중 5분마다 SPY 0DTE 서버 계산 ──
+  // wrangler.toml: crons = ["*/5 13-21 * * 1-5"]  (UTC 13:30 = EST 09:30)
+  async scheduled(event, env, ctx) {
+    const symbols = ['SPY', 'QQQ'];  // IWM 추가 시 여기에 넣으면 됨
+    for (const sym of symbols) {
+      try {
+        const data = await compute0DTE(env, sym);
+        await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
+        console.log(`[Cron] ${sym} 0DTE computed: flipZone=${data.flipZone} localGEX=${data.localGEX}M`);
+      } catch (err) {
+        // SPY 실패해도 다음 심볼 계속 진행
+        console.error(`[Cron] ${sym} failed: ${err.message}`);
+      }
+    }
   },
 };
