@@ -633,7 +633,7 @@ async function handleGex0DTE(url, env) {
 // ────────────────────────────────────────────
 async function handleInitDb(url, env) {
   const secret = url.searchParams.get('secret');
-  if (secret !== env.ADMIN_SECRET) {
+  if (!env.ADMIN_SECRET || secret !== env.ADMIN_SECRET) {
     return json({ error: 'Unauthorized' }, 401);
   }
 
@@ -752,16 +752,14 @@ async function handleInitDb(url, env) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 관리자 API — secret 인증 기반
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const ADMIN_SECRET = env.ADMIN_SECRET;
-
-function checkSecret(url, body) {
+function checkSecret(url, body, env) {
   const s = url?.searchParams?.get('secret') || body?.secret;
-  return s === ADMIN_SECRET;
+  return s === env.ADMIN_SECRET;
 }
 
 // GET /api/admin/symbols — 전체 종목 목록
 async function handleAdminSymbols(url, env) {
-  if (!checkSecret(url)) return json({ error: 'Unauthorized' }, 401);
+  if (!checkSecret(url, null, env)) return json({ error: 'Unauthorized' }, 401);
   const result = await env.DB.prepare(
     `SELECT symbol, name, type, sector, sector_etf, is_active, added_date
      FROM symbols ORDER BY type DESC, sector, symbol`
@@ -771,7 +769,7 @@ async function handleAdminSymbols(url, env) {
 
 // GET /api/admin/stats — DB 통계
 async function handleAdminStats(url, env) {
-  if (!checkSecret(url)) return json({ error: 'Unauthorized' }, 401);
+  if (!checkSecret(url, null, env)) return json({ error: 'Unauthorized' }, 401);
   const today = new Date().toISOString().split('T')[0];
   const [total, active, etf, stock, flow] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) as n FROM symbols`).first(),
@@ -791,7 +789,7 @@ async function handleAdminStats(url, env) {
 async function handleAdminAddSymbol(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+  if (!checkSecret(null, body, env)) return json({ error: 'Unauthorized' }, 401);
 
   const { symbol, name, type, sector, sector_etf } = body;
   if (!symbol || !name || !type || !sector) {
@@ -813,7 +811,7 @@ async function handleAdminAddSymbol(request, env) {
 async function handleAdminToggleSymbol(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+  if (!checkSecret(null, body, env)) return json({ error: 'Unauthorized' }, 401);
 
   const { symbol, is_active } = body;
   if (!symbol) return json({ error: 'symbol 필수' }, 400);
@@ -828,7 +826,7 @@ async function handleAdminToggleSymbol(request, env) {
 async function handleAdminDeleteSymbol(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+  if (!checkSecret(null, body, env)) return json({ error: 'Unauthorized' }, 401);
 
   const { symbol } = body;
   if (!symbol) return json({ error: 'symbol 필수' }, 400);
