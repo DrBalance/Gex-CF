@@ -633,7 +633,7 @@ async function handleGex0DTE(url, env) {
 // ────────────────────────────────────────────
 async function handleInitDb(url, env) {
   const secret = url.searchParams.get('secret');
-  if (secret !== 'drbalance-init-2026') {
+  if (secret !== env.ADMIN_SECRET) {
     return json({ error: 'Unauthorized' }, 401);
   }
 
@@ -752,7 +752,7 @@ async function handleInitDb(url, env) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 관리자 API — secret 인증 기반
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const ADMIN_SECRET = 'drbalance-init-2026'; // env.ADMIN_SECRET으로 교체 권장
+const ADMIN_SECRET = env.ADMIN_SECRET;
 
 function checkSecret(url, body) {
   const s = url?.searchParams?.get('secret') || body?.secret;
