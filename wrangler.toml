@@ -6,7 +6,13 @@ compatibility_date = "2024-09-23"
 binding = "CACHE"
 id = "59baf409d2d64e4cb9f0a6a2d50cd8a2"
 
+# D1 데이터베이스 - Options Screener
+[[d1_databases]]
+binding = "DB"
+database_name = "options-screener"
+database_id = "placeholder"  # wrangler d1 create 후 실제 ID로 교체 필요
+
 [triggers]
 # UTC 기준: 13:25~20:55 월-금 (EST 09:25~16:55) 5분마다
-# 장 시작 5분 전부터 돌려서 09:30 개장 시 데이터 준비 완료
-crons = ["*/5 13-20 * * 1-5"]
+crons = ["*/5 13-20 * * 1-5", "0 21 * * 1-5"]
+# 추가: 21:00 UTC (장 마감 후 16:00 EST) - 일간 스크리너 데이터 수집
