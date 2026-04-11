@@ -618,6 +618,44 @@ async function handleGex0DTE(url, env) {
   }
 }
 
+// 25002500 DB Cd08Ae30D654 25002500
+import { handleInitDb } from "./init-db.js";
+
+// 25002500 Screener API D578B4e4B7ec 25002500
+import {
+  getActiveSymbols,
+  fetchOptionsData,
+  saveOptionsFlow,
+  updateBaseline,
+  getScreenerResults
+} from './screener.js';
+
+async function handleScreener(url, env) {
+  const date = url.searchParams.get('date') || null;
+  const type = url.searchParams.get('type') || 'all'; // 'etf' | 'stock' | 'all'
+
+  try {
+    let results = await getScreenerResults(env.DB, date);
+
+    // 타입 필터
+    if (type !== 'all') {
+      results = results.filter(r => r.type === type);
+    }
+
+    // 섹터별 그룹핑
+    const sectors = {};
+    for (const row of results) {
+      if (!sectors[row.sector]) sectors[row.sector] = { etf: [], stocks: [] };
+      if (row.type === 'etf') sectors[row.sector].etf.push(row);
+      else sectors[row.sector].stocks.push(row);
+    }
+
+    return json({ date: date || 'today', sectors, total: results.length });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+
 // ── 메인 라우터 ──
 export default {
   async fetch(request, env) {
@@ -633,21 +671,53 @@ export default {
     if (url.pathname === '/api/vannacharm') return handleVannaCharm(url, env);
     if (url.pathname === '/api/greeks')     return handleGreeks(url, env);
     if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
+    if (url.pathname === '/api/screener')   return handleScreener(url, env);
+    if (url.pathname === '/api/init-db')    return handleInitDb(url, env);
 
     return json({ error: 'Not found' }, 404);
   },
 
-  // ── Cron: 장 중 5분마다 SPY 0DTE 서버 계산 ──
-  // wrangler.toml: crons = ["*/5 13-21 * * 1-5"]  (UTC 13:30 = EST 09:30)
+  // ── Cron 핸들러 ──
   async scheduled(event, env, ctx) {
-    const symbols = ['SPY', 'QQQ'];  // IWM 추가 시 여기에 넣으면 됨
+    const cron = event.cron;
+
+    // 1) 장 마감 후 스크리너 데이터 수집 (21:00 UTC = 17:00 EST)
+    if (cron === '0 21 * * 1-5') {
+      console.log('[Cron] 스크리너 데이터 수집 시작');
+      try {
+        const symbols = await getActiveSymbols(env.DB);
+        let total = 0;
+
+        for (const sym of symbols) {
+          try {
+            const records = await fetchOptionsData(sym.symbol);
+            if (records?.length) {
+              await saveOptionsFlow(env.DB, records);
+              await updateBaseline(env.DB, sym.symbol);
+              total += records.length;
+              console.log(`[Screener] ${sym.symbol}: ${records.length}개 만기 저장`);
+            }
+            // API 과부하 방지
+            await new Promise(r => setTimeout(r, 300));
+          } catch (err) {
+            console.error(`[Screener] ${sym.symbol} 실패:`, err.message);
+          }
+        }
+        console.log(`[Cron] 스크리너 완료: 총 ${total}개 레코드`);
+      } catch (err) {
+        console.error('[Cron] 스크리너 전체 실패:', err.message);
+      }
+      return;
+    }
+
+    // 2) 장 중 5분마다 0DTE 계산 (기존 로직)
+    const symbols = ['SPY', 'QQQ'];
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
         await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
         console.log(`[Cron] ${sym} 0DTE computed: flipZone=${data.flipZone} localGEX=${data.localGEX}M`);
       } catch (err) {
-        // SPY 실패해도 다음 심볼 계속 진행
         console.error(`[Cron] ${sym} failed: ${err.message}`);
       }
     }
