@@ -748,6 +748,101 @@ async function handleInitDb(url, env) {
 }
 
 // ────────────────────────────────────────────
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 관리자 API — secret 인증 기반
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ADMIN_SECRET = 'drbalance-init-2026'; // env.ADMIN_SECRET으로 교체 권장
+
+function checkSecret(url, body) {
+  const s = url?.searchParams?.get('secret') || body?.secret;
+  return s === ADMIN_SECRET;
+}
+
+// GET /api/admin/symbols — 전체 종목 목록
+async function handleAdminSymbols(url, env) {
+  if (!checkSecret(url)) return json({ error: 'Unauthorized' }, 401);
+  const result = await env.DB.prepare(
+    `SELECT symbol, name, type, sector, sector_etf, is_active, added_date
+     FROM symbols ORDER BY type DESC, sector, symbol`
+  ).all();
+  return json({ symbols: result.results });
+}
+
+// GET /api/admin/stats — DB 통계
+async function handleAdminStats(url, env) {
+  if (!checkSecret(url)) return json({ error: 'Unauthorized' }, 401);
+  const today = new Date().toISOString().split('T')[0];
+  const [total, active, etf, stock, flow] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) as n FROM symbols`).first(),
+    env.DB.prepare(`SELECT COUNT(*) as n FROM symbols WHERE is_active=1`).first(),
+    env.DB.prepare(`SELECT COUNT(*) as n FROM symbols WHERE type='etf'`).first(),
+    env.DB.prepare(`SELECT COUNT(*) as n FROM symbols WHERE type='stock'`).first(),
+    env.DB.prepare(`SELECT COUNT(*) as n FROM options_flow WHERE date=?`).bind(today).first(),
+  ]);
+  return json({
+    total: total.n, active: active.n,
+    etf: etf.n, stock: stock.n,
+    flow_today: flow.n
+  });
+}
+
+// POST /api/admin/add-symbol — 종목 추가
+async function handleAdminAddSymbol(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+
+  const { symbol, name, type, sector, sector_etf } = body;
+  if (!symbol || !name || !type || !sector) {
+    return json({ error: 'symbol, name, type, sector 필수' }, 400);
+  }
+
+  try {
+    await env.DB.prepare(
+      `INSERT INTO symbols (symbol, name, type, sector, sector_etf, is_active, added_date)
+       VALUES (?, ?, ?, ?, ?, 1, date('now'))`
+    ).bind(symbol.toUpperCase(), name, type, sector, sector_etf || null).run();
+    return json({ success: true, symbol: symbol.toUpperCase() });
+  } catch(e) {
+    return json({ error: e.message }, 400);
+  }
+}
+
+// POST /api/admin/toggle-symbol — 활성화/비활성화
+async function handleAdminToggleSymbol(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+
+  const { symbol, is_active } = body;
+  if (!symbol) return json({ error: 'symbol 필수' }, 400);
+
+  await env.DB.prepare(
+    `UPDATE symbols SET is_active=? WHERE symbol=?`
+  ).bind(is_active ? 1 : 0, symbol.toUpperCase()).run();
+  return json({ success: true, symbol, is_active });
+}
+
+// POST /api/admin/delete-symbol — 종목 삭제
+async function handleAdminDeleteSymbol(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!checkSecret(null, body)) return json({ error: 'Unauthorized' }, 401);
+
+  const { symbol } = body;
+  if (!symbol) return json({ error: 'symbol 필수' }, 400);
+
+  const sym = symbol.toUpperCase();
+  // 관련 데이터 모두 삭제
+  await env.DB.batch([
+    env.DB.prepare(`DELETE FROM options_flow WHERE symbol=?`).bind(sym),
+    env.DB.prepare(`DELETE FROM options_baseline WHERE symbol=?`).bind(sym),
+    env.DB.prepare(`DELETE FROM symbols WHERE symbol=?`).bind(sym),
+  ]);
+  return json({ success: true, deleted: sym });
+}
+
 // Screener 핸들러 (/api/screener)
 // ────────────────────────────────────────────
 async function handleScreener(url, env) {
@@ -811,6 +906,13 @@ export default {
     if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
     if (url.pathname === '/api/screener')   return handleScreener(url, env);
     if (url.pathname === '/api/init-db')    return handleInitDb(url, env);
+
+    // 관리자 API
+    if (url.pathname === '/api/admin/symbols')       return handleAdminSymbols(url, env);
+    if (url.pathname === '/api/admin/stats')         return handleAdminStats(url, env);
+    if (url.pathname === '/api/admin/add-symbol')    return handleAdminAddSymbol(request, env);
+    if (url.pathname === '/api/admin/toggle-symbol') return handleAdminToggleSymbol(request, env);
+    if (url.pathname === '/api/admin/delete-symbol') return handleAdminDeleteSymbol(request, env);
 
     return json({ error: 'Not found' }, 404);
   },
