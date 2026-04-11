@@ -5,3 +5,8 @@ compatibility_date = "2024-09-23"
 [[kv_namespaces]]
 binding = "CACHE"
 id = "59baf409d2d64e4cb9f0a6a2d50cd8a2"
+
+[triggers]
+# UTC 기준: 13:25~20:55 월-금 (EST 09:25~16:55) 5분마다
+# 장 시작 5분 전부터 돌려서 09:30 개장 시 데이터 준비 완료
+crons = ["*/5 13-20 * * 1-5"]

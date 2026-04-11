@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v6.14</title>
+<title>딜러 리스크 대시보드 v7.0</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -197,6 +197,13 @@ tr.flip td{background:rgba(240,136,62,.06)}
 .empty-title{font-size:17px;font-weight:500;color:var(--text2)}
 .empty-sub{font-size:14px;text-align:center;line-height:1.7}
 .spinner{width:38px;height:38px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite}
+/* ── 탭 네비게이션 ── */
+.tab-nav{display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);background:var(--bg2);padding:0 28px}
+.tab-btn{padding:11px 20px;font-size:14px;font-weight:600;color:var(--text3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s;letter-spacing:-.2px}
+.tab-btn:hover{color:var(--text2)}
+.tab-btn.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab-btn .tab-badge{display:inline-block;font-size:10px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:6px;background:rgba(63,185,80,.15);color:var(--green);vertical-align:middle}
+.tab-btn.active .tab-badge{background:rgba(88,166,255,.15);color:var(--blue)}
 @keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
@@ -209,14 +216,38 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v6.14 · CBOE · <span style="color:#3fb950">FlipZone Fix</span></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v7.0 · <span style="color:#3fb950">Cron+Tab</span></div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
 </div>
 
-<div class="ctrl-bar">
-  <select class="sym-select" id="sym-select">
+<!-- 탭 네비게이션 -->
+<div class="tab-nav">
+  <button class="tab-btn active" id="tab-0dte" onclick="switchTab('0dte')">
+    0DTE 메인 <span class="tab-badge">LIVE</span>
+  </button>
+  <button class="tab-btn" id="tab-date" onclick="switchTab('date')">
+    날짜 조회
+  </button>
+</div>
+
+<!-- 0DTE 컨트롤 바 -->
+<div class="ctrl-bar" id="ctrl-0dte">
+  <select class="sym-select" id="sym-select-0dte" onchange="load0DTE()">
+    <option value="SPY">SPY</option>
+    <option value="QQQ">QQQ</option>
+  </select>
+  <button class="auto-btn on" id="auto-btn-0dte" onclick="toggle0DTEAuto()">
+    <div class="dot"></div><span id="auto-label-0dte">자동갱신 ON</span>
+  </button>
+  <div class="ctrl-spacer"></div>
+  <div class="data-time" id="data-time-0dte">서버 계산 대기 중...</div>
+</div>
+
+<!-- 날짜 조회 컨트롤 바 -->
+<div class="ctrl-bar" id="ctrl-date" style="display:none">
+  <select class="sym-select" id="sym-select" onchange="allOptions=[];loadExpirations()">
     <option value="SPY">SPY</option>
     <option value="QQQ">QQQ</option>
     <option value="_SPX">SPX</option>
@@ -228,14 +259,31 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="dot"></div><span id="auto-label">자동갱신 OFF</span>
   </button>
   <div class="ctrl-spacer"></div>
+  <div class="data-time" id="data-time"></div>
 </div>
 
-<div class="main" id="main-area">
-  <div class="card">
-    <div class="empty-state">
-      <div class="empty-icon">◈</div>
-      <div class="empty-title">심볼 선택 후 데이터 로드를 눌러주세요</div>
-      <div class="empty-sub">CBOE 15분 지연 · CSV 불필요 · 버튼 한 번으로 옵션 체인 자동 로드</div>
+<!-- 0DTE 메인 영역 -->
+<div id="area-0dte">
+  <div class="main" id="main-area-0dte">
+    <div class="card">
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-title">서버에서 0DTE 데이터 수신 중...</div>
+        <div class="empty-sub">Cron이 5분마다 자동 계산합니다. 첫 로드는 잠시 걸릴 수 있습니다</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 날짜 조회 영역 -->
+<div id="area-date" style="display:none">
+  <div class="main" id="main-area">
+    <div class="card">
+      <div class="empty-state">
+        <div class="empty-icon">◈</div>
+        <div class="empty-title">심볼 선택 후 데이터 로드를 눌러주세요</div>
+        <div class="empty-sub">만기일 선택 → 실시간 CBOE 데이터 조회</div>
+      </div>
     </div>
   </div>
 </div>
@@ -254,8 +302,309 @@ let vcZoom = 1;
 let zoomLevel = 1;
 let prevSpot = null;
 
-window.addEventListener('DOMContentLoaded', () => { loadExpirations(); loadVIX(); });
-document.getElementById('sym-select').addEventListener('change', () => { allOptions=[]; loadExpirations(); });
+// 0DTE 전용 상태
+let auto0DTEInterval = null;
+let current0DTESym = 'SPY';
+
+// ── 탭 전환 ──
+function switchTab(tab) {
+  const is0dte = tab === '0dte';
+  document.getElementById('tab-0dte').className  = 'tab-btn' + (is0dte  ? ' active' : '');
+  document.getElementById('tab-date').className  = 'tab-btn' + (!is0dte ? ' active' : '');
+  document.getElementById('ctrl-0dte').style.display  = is0dte  ? '' : 'none';
+  document.getElementById('ctrl-date').style.display  = !is0dte ? '' : 'none';
+  document.getElementById('area-0dte').style.display  = is0dte  ? '' : 'none';
+  document.getElementById('area-date').style.display  = !is0dte ? '' : 'none';
+  // 날짜 탭 최초 진입 시 만기 목록 로드
+  if (!is0dte && !allOptions.length) loadExpirations();
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 0DTE 메인 — 서버 계산 결과 수신 & 렌더
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function load0DTE() {
+  const sym = document.getElementById('sym-select-0dte').value;
+  current0DTESym = sym;
+  setStatus('updating');
+  try {
+    // 병렬: 서버 0DTE + 가격 + VIX
+    const [d0, priceJson, vixJson] = await Promise.all([
+      fetch(`${PROXY}/api/gex0dte?symbol=${sym}`).then(r => r.json()),
+      fetch(`${PROXY}/api/price?symbol=${sym}`).then(r => r.json()),
+      fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r => r.json()),
+    ]);
+
+    if (d0.error) throw new Error(d0.error);
+
+    vixVal  = vixJson.VIX?.price;
+    vvixVal = vixJson.VVIX?.price;
+
+    const newSpot = priceJson.price || d0.spotPrice;
+    const marketState = priceJson.marketState || 'REGULAR';
+    const preMarketPct = priceJson.preMarketChangePercent;
+    const prevClose    = priceJson.prevClose;
+
+    // vcHistory 누적
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' });
+    priceHistory.push({ time: timeStr, price: newSpot, marketState, vix: vixVal, vvix: vvixVal, ts: now.getTime() });
+    if (priceHistory.length > 60) priceHistory.shift();
+
+    vcHistory.push({
+      time:  timeStr,
+      vanna: d0.vanna,
+      charm: d0.charm,
+      gex:   d0.localGEX,
+      vix:   vixVal,
+      spot:  newSpot,
+    });
+    if (vcHistory.length > 120) vcHistory.shift();
+
+    // currentD 동기화 (판단 패널 함수들이 사용)
+    const strikes = d0.strikes || [];
+    currentD = {
+      strikes,
+      spotPrice: d0.spotPrice,
+      flipZone:  d0.flipZone,
+      putWall:   d0.putWall,
+      callWall:  d0.callWall,
+      localGEX:  (d0.localGEX || 0) * 1e6,
+      totalGEX:  (d0.totalGEX || 0) * 1e6,
+      pcr:       d0.pcr,
+      exp:       d0.exp,
+      sym,
+      upStrikes: d0.upStrikes || [],
+      dnStrikes: d0.dnStrikes || [],
+    };
+    currentStrikes = strikes;
+    prevSpot = newSpot;
+
+    // 0DTE 영역 렌더
+    render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr);
+
+    // 타임스탬프 표시
+    const computedAt = d0.computedAt ? new Date(d0.computedAt).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' }) : '—';
+    const srcLabel   = d0.source === 'cron_computed' ? '🟢 Cron' : '🟡 On-demand';
+    document.getElementById('data-time-0dte').textContent = `${srcLabel} · 계산: ${computedAt} · 조회: ${timeStr}`;
+    setStatus('live');
+  } catch(e) {
+    console.error('[0DTE]', e);
+    setStatus('error');
+    document.getElementById('main-area-0dte').innerHTML = `<div class="card"><div class="empty-state"><div class="empty-title">로드 실패</div><div class="empty-sub">${e.message}</div></div></div>`;
+  }
+}
+
+function toggle0DTEAuto() {
+  if (auto0DTEInterval) {
+    clearInterval(auto0DTEInterval);
+    auto0DTEInterval = null;
+    document.getElementById('auto-btn-0dte').className = 'auto-btn';
+    document.getElementById('auto-label-0dte').textContent = '자동갱신 OFF';
+  } else {
+    document.getElementById('auto-btn-0dte').className = 'auto-btn on';
+    document.getElementById('auto-label-0dte').textContent = '자동갱신 ON';
+    load0DTE();
+    auto0DTEInterval = setInterval(load0DTE, 60000);
+  }
+}
+
+// 0DTE 전용 render
+function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) {
+  const vc = { totalVanna: d0.vanna, totalCharm: d0.charm };
+  const strikes = d0.strikes || [];
+  const { spotPrice, flipZone, putWall, callWall, exp, pcr } = d0;
+  const localGEX  = (d0.localGEX || 0) * 1e6;
+  const totalGEX  = (d0.totalGEX || 0) * 1e6;
+  const upStrikes = d0.upStrikes || [];
+  const dnStrikes = d0.dnStrikes || [];
+  const sym = d0.symbol || current0DTESym;
+
+  const regime = totalGEX >= 0 ? 'positive' : 'negative';
+  const alarms = [];
+  const flipDist = flipZone ? Math.abs(spotPrice - flipZone) / spotPrice * 100 : null;
+  const putDist  = putWall  ? (spotPrice - putWall)  / spotPrice * 100 : null;
+  if (!flipZone)            alarms.push({ l:'red',    m:`GEX 전 구간 ${regime==='negative'?'음수':'양수'} — Flip Zone 없음` });
+  else if (flipDist < 0.5)  alarms.push({ l:'red',    m:`Flip Zone ($${flipZone}) 극근접 ${flipDist.toFixed(2)}% — 방향 전환 임박` });
+  else if (flipDist < 1.5)  alarms.push({ l:'yellow', m:`Flip Zone ($${flipZone}) 근접 ${flipDist.toFixed(2)}%` });
+  if (putDist !== null && putDist < 1) alarms.push({ l:'red', m:`Put Wall ($${putWall}) 직하방 — 이탈 시 낙폭 가속` });
+  alarms.push(localGEX < 0
+    ? { l:'red',   m:`로컬 GEX ${(localGEX/1e6).toFixed(1)}M — 딜러 추세 증폭` }
+    : { l:'green', m:`로컬 GEX +${(localGEX/1e6).toFixed(1)}M — 딜러 변동성 억제` });
+  if (pcr > 1.5) alarms.push({ l:'red', m:`PCR ${pcr.toFixed(2)} — 풋 편중 심화` });
+  else if (pcr < 0.7) alarms.push({ l:'yellow', m:`PCR ${pcr.toFixed(2)} — 콜 편중` });
+
+  const maxUp = Math.max(...upStrikes.map(s => s.callHedge), 1);
+  const maxDn = Math.max(...dnStrikes.map(s => s.putHedge),  1);
+  const rankCls = i => ['r1','r2','r3','r4'][i] || 'r4';
+  const upRows = upStrikes.map((s,i) => {
+    const dist = ((s.strike - spotPrice) / spotPrice * 100).toFixed(2);
+    const pct  = Math.round(s.callHedge / maxUp * 100);
+    return `<div class="hedge-row"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">+${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar up" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.callHedge/1e6).toFixed(1)}M</span></div>`;
+  }).join('');
+  const dnRows = dnStrikes.map((s,i) => {
+    const dist = ((spotPrice - s.strike) / spotPrice * 100).toFixed(2);
+    const pct  = Math.round(s.putHedge / maxDn * 100);
+    return `<div class="hedge-row"><span class="hedge-rank ${rankCls(i)}">${i+1}</span><span class="hedge-strike">$${s.strike}</span><span class="hedge-dist">-${dist}%</span><div class="hedge-bar-wrap"><div class="hedge-bar dn" style="width:${pct}%"></div></div><span class="hedge-pressure">${(s.putHedge/1e6).toFixed(1)}M</span></div>`;
+  }).join('');
+
+  const vixDisplay  = vixVal  ? vixVal.toFixed(2)  : '—';
+  const vvixDisplay = vvixVal ? vvixVal.toFixed(2) : '—';
+  const fixedItems  = buildFixedJudgment({ strikes, spotPrice, flipZone, putWall, callWall, localGEX, totalGEX, upStrikes, dnStrikes }, vc);
+  const chartData   = strikes.filter(s => Math.abs(s.strike - spotPrice) / spotPrice < 0.08);
+  const tableData   = strikes.filter(s => Math.abs(s.strike - spotPrice) / spotPrice < 0.10);
+
+  const spotDisplay = newSpot ? newSpot.toFixed(1) : spotPrice.toFixed(1);
+  const stateLabel  = { PRE:'프리마켓', REGULAR:'정규장', POST:'애프터', CLOSED:'마감' }[marketState] || marketState;
+  const pctBase = (marketState === 'PRE' && prevClose) ? prevClose : spotPrice;
+  const pct     = newSpot ? ((newSpot - pctBase) / pctBase * 100) : 0;
+  const pctStr  = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+
+  document.getElementById('main-area-0dte').innerHTML = `
+  <div class="card">
+    <div class="card-title">${sym} · 0DTE ${exp} · ${stateLabel} · 서버계산(Cron)</div>
+    <div class="regime-bar ${regime}">${regime==='positive'?'✚ Positive GEX — 딜러 변동성 억제 (피닝)':'▼ Negative GEX — 딜러 추세 증폭'}</div>
+    <div id="alarm-list-0dte"></div>
+    <div class="metrics">
+      <div class="metric blue" id="metric-spot-0dte"><div class="val">[${stateLabel.slice(0,2)}] $${spotDisplay}</div><div class="lbl">현재가 ${pctStr}</div></div>
+      <div class="metric ${flipZone?'orange':''}"><div class="val">${flipZone?'$'+flipZone:'없음'}</div><div class="lbl">Flip Zone</div></div>
+      <div class="metric ${pcr>1.5?'red':pcr<0.7?'yellow':''}"><div class="val">${pcr.toFixed(2)}</div><div class="lbl">Put/Call</div></div>
+      <div class="metric red"><div class="val">${putWall?'$'+putWall:'—'}</div><div class="lbl">Put Wall</div></div>
+      <div class="metric green"><div class="val">${callWall?'$'+callWall:'—'}</div><div class="lbl">Call Wall</div></div>
+      <div class="metric ${localGEX<0?'red':'green'}"><div class="val">${(localGEX/1e6).toFixed(1)}M</div><div class="lbl">Local GEX</div></div>
+      <div class="metric ${vixVal&&vixVal>30?'danger':vixVal&&vixVal>20?'warn':'yellow'}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
+      <div class="metric ${vvixVal&&vvixVal>130?'danger':vvixVal&&vvixVal>110?'warn':'yellow'}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
+      <div class="metric" id="metric-vanna" style="border-color:#bc8cff55"><div class="val" style="color:#bc8cff">${d0.vanna.toFixed(1)}M</div><div class="lbl" style="color:#bc8cff">● Vanna Exp</div></div>
+      <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${d0.charm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm · VC ${Math.abs(d0.vanna)>0?(Math.abs(d0.charm)/Math.abs(d0.vanna)).toFixed(2):'—'}</div></div>
+    </div>
+
+    <div class="judgment-panel" style="margin-top:20px">
+      <div class="judgment-fixed">
+        <div class="judgment-fixed-title">시장 구조 분석 — 0DTE 핵심 구조</div>
+        <div id="judgment-fixed-content-0dte">${fixedItems.map(item=>`<div class="judgment-item ${item.cls}"><span class="ji-icon">${item.icon}</span><span class="ji-text">${item.text}</span></div>`).join('')}</div>
+      </div>
+      <div class="judgment-live">
+        <div class="judgment-live-header">
+          <div class="judgment-live-title"><div class="live-dot"></div>실시간 상황 판단</div>
+          <div class="judgment-live-nav">
+            <div class="jl-nav-btn" onclick="jlScroll0('-1')" title="위로">▲</div>
+            <div class="jl-nav-btn" onclick="jlScroll0('1')"  title="아래로">▼</div>
+          </div>
+        </div>
+        <div class="judgment-live-scroll" id="judgment-live-scroll-0dte">
+          <div id="judgment-live-content-0dte"><div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">자동갱신 시 실시간 판단이 누적됩니다</span></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="hedge-section">
+      <div class="hedge-title">딜러 헷지 부담 집중 스트라이크 (γ × OI 기준)</div>
+      <div class="hedge-grid">
+        <div><div class="hedge-col-label" style="color:var(--green)">▲ 상승 — 콜 헷지 Top4</div>${upRows||'<div style="color:var(--text3);font-size:13px;padding:8px">데이터 없음</div>'}</div>
+        <div><div class="hedge-col-label" style="color:var(--red)">▼ 하락 — 풋 헷지 Top4</div>${dnRows||'<div style="color:var(--text3);font-size:13px;padding:8px">데이터 없음</div>'}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vc-panel-wrap" style="flex-direction:column">
+    <div id="greek-metrics-row" style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 0;border-bottom:1px solid var(--border)">
+      <div class="greek-metric-card" id="gmc-vanna"><div class="gmc-header"><span class="gmc-dot" style="background:#bc8cff"></span><span class="gmc-name">Vanna</span><span class="gmc-signal" id="gmc-vanna-signal">—</span></div><div class="gmc-value" id="gmc-vanna-val">—</div><div class="gmc-desc" id="gmc-vanna-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" id="gmc-charm"><div class="gmc-header"><span class="gmc-dot" style="background:#58a6ff"></span><span class="gmc-name">Charm</span><span class="gmc-signal" id="gmc-charm-signal">—</span></div><div class="gmc-value" id="gmc-charm-val">—</div><div class="gmc-desc" id="gmc-charm-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" id="gmc-gex"><div class="gmc-header"><span class="gmc-dot" style="background:#3fb950"></span><span class="gmc-name">GEX</span><span class="gmc-signal" id="gmc-gex-signal">—</span></div><div class="gmc-value" id="gmc-gex-val">—</div><div class="gmc-desc" id="gmc-gex-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" style="flex:1;min-width:160px" id="gmc-dominant"><div class="gmc-header"><span class="gmc-name" style="color:var(--text2)">◈ 지배 Greek</span></div><div class="gmc-value" id="gmc-dominant-val" style="font-size:13px">—</div><div class="gmc-desc" id="gmc-flip-desc">—</div></div>
+    </div>
+    <div class="vc-chart-area" style="width:100%;border-right:none">
+      <div class="vc-chart-header">
+        <div class="vc-chart-title">◈ Greek 실시간 흐름 (서버 계산 · Cron 5분)</div>
+        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+          <span style="font-size:12px;color:#bc8cff;font-weight:600">● Vanna</span>
+          <span style="font-size:12px;color:#58a6ff;font-weight:600">● Charm</span>
+          <span style="font-size:12px;color:#d29922;font-weight:600">— VIX</span>
+          <span style="font-size:12px;color:#3fb950;font-weight:600">▪ GEX 배경</span>
+        </div>
+      </div>
+      <div class="vc-zoom-row">
+        <span class="vc-zoom-label">확대</span>
+        <input type="range" class="vc-zoom-slider" min="1" max="6" step="0.5" value="1" oninput="updateVCZoom(this.value)">
+        <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
+        <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
+      </div>
+      <div class="vc-scroll-wrap" id="vc-scroll-wrap">
+        <div class="vc-chart-inner" id="vc-chart-inner"><canvas id="vc-chart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">OI 분포 + GEX (0DTE)</div>
+    <div class="chart-controls">
+      <span class="zoom-label">확대</span>
+      <input type="range" class="zoom-slider" id="zoom-slider" min="1" max="6" step="0.5" value="1" oninput="updateZoom(this.value)">
+      <span class="zoom-val" id="zoom-val">1×</span>
+      <span class="scroll-hint">← 가로 스크롤 →</span>
+    </div>
+    <div class="chart-scroll-wrap" id="chart-scroll-wrap">
+      <div class="chart-inner" id="chart-inner"><canvas id="mainchart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">스트라이크별 상세 — 현재가 ±10%</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Strike</th><th>Call OI</th><th>Put OI</th><th>GEX(M)</th><th>Call Vol</th><th>Put Vol</th><th>IV</th></tr></thead>
+      <tbody id="tbl-body-0dte"></tbody>
+    </table></div>
+  </div>`;
+
+  // 알람 렌더
+  const al = document.getElementById('alarm-list-0dte');
+  (alarms.length ? alarms : [{ l:'green', m:'특이 리스크 없음' }]).forEach(a => {
+    const div = document.createElement('div'); div.className = `alarm ${a.l}`; div.textContent = a.m; al.appendChild(div);
+  });
+
+  // 차트 & 테이블
+  buildChart(chartData, newSpot || spotPrice, flipZone, putWall, callWall);
+  const tbody = document.getElementById('tbl-body-0dte');
+  if (tbody) tableData.forEach(s => {
+    const isCur = Math.abs(s.strike - (newSpot||spotPrice)) < 0.5;
+    const isFlip = s.strike === flipZone, isPW = s.strike === putWall, isCW = s.strike === callWall;
+    const tr = document.createElement('tr');
+    if (isCur) tr.className = 'cur'; else if (isFlip) tr.className = 'flip';
+    let tags = '';
+    if (isCur)  tags += `<span class="tag tag-cur">현재가</span>`;
+    if (isFlip) tags += `<span class="tag tag-flip">Flip</span>`;
+    if (isPW)   tags += `<span class="tag tag-pw">Put Wall</span>`;
+    if (isCW)   tags += `<span class="tag tag-cw">Call Wall</span>`;
+    const gc = s.gex >= 0 ? '#3fb950' : '#f85149';
+    tr.innerHTML = `<td>$${s.strike}${tags}</td><td>${s.callOI.toLocaleString()}</td><td>${s.putOI.toLocaleString()}</td><td style="color:${gc};font-weight:600">${s.gex>=0?'+':''}${(s.gex/1e6).toFixed(2)}</td><td>${(s.callVol||0).toLocaleString()}</td><td>${(s.putVol||0).toLocaleString()}</td><td>${s.iv>0?(s.iv*100).toFixed(1)+'%':'—'}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // 실시간 판단 이벤트
+  const ctx0 = { marketState, priceLabel: `[${stateLabel}] $${spotDisplay}`, preMarketPct, prevClose, vix: vixVal };
+  const liveEvts = buildLiveJudgment(newSpot || spotPrice, vc, currentD, ctx0, timeStr);
+  liveEvts.forEach(ev => { liveEvents.unshift({ time: timeStr, cls: ev.cls, msg: ev.msg }); });
+  if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
+  const liveEl = document.getElementById('judgment-live-content-0dte');
+  if (liveEl) liveEl.innerHTML = liveEvents.map(e => `<div class="live-event ${e.cls}"><span class="le-time">${e.time}</span><span class="le-msg">${e.msg}</span></div>`).join('') || `<div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">감지 중...</span></div>`;
+
+  // Greek 힘의 균형
+  const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
+  renderForceSidebar(force);
+  renderVCChart();
+}
+
+function jlScroll0(dir) {
+  const el = document.getElementById('judgment-live-scroll-0dte');
+  if (el) el.scrollBy({ top: parseInt(dir) * 72, behavior: 'smooth' });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  // 0DTE 탭 기본: 바로 로드 + 자동갱신 시작
+  load0DTE();
+  auto0DTEInterval = setInterval(load0DTE, 60000);
+  // 날짜 탭 만기 목록은 탭 전환 시 로드 (초기엔 불필요)
+  loadVIX();
+});
 
 async function loadVIX() {
   try {
