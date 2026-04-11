@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>스크리너 관리 — DrBalance</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--border:#30363d;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --blue:#58a6ff;--blue-dim:#1f6feb;--green:#3fb950;--red:#f85149;
+  --yellow:#d29922;--orange:#f0883e;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono:'SF Mono','Fira Code','Consolas',monospace;
+}
+html,body{width:100%;min-height:100vh;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+
+/* ── 헤더 ── */
+.header{display:flex;align-items:center;justify-content:space-between;
+  padding:12px 28px;border-bottom:1px solid var(--border);background:var(--bg2)}
+.logo{font-size:17px;font-weight:700}
+.logo span{color:var(--orange)}
+.back-btn{color:var(--blue);text-decoration:none;font-size:13px;
+  padding:5px 12px;border:1px solid var(--blue-dim);border-radius:5px}
+.back-btn:hover{background:var(--blue-dim)}
+
+/* ── 인증 화면 ── */
+#auth-screen{display:flex;align-items:center;justify-content:center;min-height:80vh}
+.auth-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+  padding:40px;width:360px;text-align:center}
+.auth-title{font-size:18px;font-weight:700;margin-bottom:8px}
+.auth-sub{color:var(--text3);font-size:13px;margin-bottom:24px}
+.auth-input{width:100%;background:var(--bg3);border:1px solid var(--border);
+  color:var(--text);padding:10px 14px;border-radius:6px;font-size:14px;
+  font-family:var(--mono);margin-bottom:12px}
+.auth-input:focus{outline:none;border-color:var(--blue)}
+.auth-btn{width:100%;background:var(--blue-dim);color:var(--blue);
+  border:1px solid var(--blue-dim);border-radius:6px;padding:10px;
+  font-size:14px;font-weight:600;cursor:pointer}
+.auth-btn:hover{background:var(--blue);color:#000}
+.auth-error{color:var(--red);font-size:13px;margin-top:8px}
+
+/* ── 메인 레이아웃 ── */
+#main-screen{display:none;padding:24px 28px;max-width:1100px;margin:0 auto}
+
+/* ── 섹션 ── */
+.section{margin-bottom:28px}
+.section-title{font-size:15px;font-weight:700;color:var(--text);
+  margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:8px}
+.badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:3px;
+  background:var(--bg3);color:var(--text3)}
+
+/* ── 종목 추가 폼 ── */
+.add-form{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px}
+.form-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.form-group{display:flex;flex-direction:column;gap:4px}
+.form-group label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase}
+.form-input,.form-select{background:var(--bg3);border:1px solid var(--border);
+  color:var(--text);padding:7px 12px;border-radius:5px;font-size:13px;
+  font-family:var(--font)}
+.form-input:focus,.form-select:focus{outline:none;border-color:var(--blue)}
+.form-input.wide{width:220px}
+.form-input.mid{width:140px}
+.form-input.sm{width:100px}
+.form-select{width:120px;cursor:pointer}
+.add-btn{background:var(--green);color:#000;border:none;border-radius:5px;
+  padding:7px 20px;font-size:13px;font-weight:700;cursor:pointer;align-self:flex-end}
+.add-btn:hover{opacity:.85}
+.form-msg{font-size:12px;margin-top:6px;min-height:16px}
+.form-msg.ok{color:var(--green)}
+.form-msg.err{color:var(--red)}
+
+/* ── 종목 테이블 ── */
+.sym-table-wrap{background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.sym-table{width:100%;border-collapse:collapse;font-size:13px}
+.sym-table th{text-align:left;padding:9px 14px;color:var(--text3);
+  font-size:11px;font-weight:600;text-transform:uppercase;
+  border-bottom:1px solid var(--border);background:var(--bg3)}
+.sym-table td{padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text2)}
+.sym-table tr:last-child td{border-bottom:none}
+.sym-table tr:hover td{background:rgba(255,255,255,.02)}
+.sym-symbol{font-weight:700;color:var(--text);font-family:var(--mono)}
+.type-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 6px;
+  border-radius:3px;text-transform:uppercase}
+.type-etf{background:rgba(88,166,255,.15);color:var(--blue)}
+.type-stock{background:rgba(63,185,80,.12);color:var(--green)}
+.active-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.active-dot.on{background:var(--green)}
+.active-dot.off{background:var(--text3)}
+.action-btn{padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;
+  cursor:pointer;border:none;font-family:var(--font)}
+.toggle-btn.on{background:rgba(248,81,73,.15);color:var(--red)}
+.toggle-btn.off{background:rgba(63,185,80,.15);color:var(--green)}
+.del-btn{background:rgba(248,81,73,.1);color:var(--red);margin-left:4px}
+.action-btn:hover{opacity:.75}
+
+/* ── 섹터 필터 ── */
+.filter-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.filter-btn{padding:4px 12px;border-radius:5px;font-size:12px;font-weight:600;
+  border:1px solid var(--border);background:var(--bg3);color:var(--text3);cursor:pointer}
+.filter-btn.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
+
+/* ── 로딩 ── */
+.loading{text-align:center;padding:30px;color:var(--text3)}
+
+/* ── DB 상태 ── */
+.db-stats{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.stat-card{background:var(--bg2);border:1px solid var(--border);border-radius:7px;
+  padding:14px 20px;flex:1;min-width:140px}
+.stat-num{font-size:24px;font-weight:700;color:var(--blue);font-family:var(--mono)}
+.stat-label{font-size:11px;color:var(--text3);margin-top:2px}
+</style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<div class="header">
+  <div class="logo">Dr<span>Balance</span> · 관리자</div>
+  <a href="/" class="back-btn">← 대시보드로</a>
+</div>
+
+<!-- 인증 화면 -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-title">🔐 관리자 인증</div>
+    <div class="auth-sub">스크리너 관리 페이지</div>
+    <input type="password" class="auth-input" id="secret-input"
+      placeholder="Secret 입력" onkeydown="if(e.key==='Enter')doAuth()">
+    <button class="auth-btn" onclick="doAuth()">로그인</button>
+    <div class="auth-error" id="auth-error"></div>
+  </div>
+</div>
+
+<!-- 메인 화면 -->
+<div id="main-screen">
+
+  <!-- DB 상태 -->
+  <div class="db-stats" id="db-stats">
+    <div class="stat-card"><div class="stat-num" id="stat-total">-</div><div class="stat-label">총 종목</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-active">-</div><div class="stat-label">모니터링 중</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-etf">-</div><div class="stat-label">ETF</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-stock">-</div><div class="stat-label">개별주</div></div>
+    <div class="stat-card"><div class="stat-num" id="stat-flow">-</div><div class="stat-label">오늘 플로우 레코드</div></div>
+  </div>
+
+  <!-- 종목 추가 -->
+  <div class="section">
+    <div class="section-title">➕ 종목 추가</div>
+    <div class="add-form">
+      <div class="form-row">
+        <div class="form-group">
+          <label>심볼 *</label>
+          <input class="form-input sm" id="f-symbol" placeholder="AMZN" style="text-transform:uppercase">
+        </div>
+        <div class="form-group">
+          <label>회사명 *</label>
+          <input class="form-input wide" id="f-name" placeholder="Amazon.com Inc.">
+        </div>
+        <div class="form-group">
+          <label>구분 *</label>
+          <select class="form-select" id="f-type">
+            <option value="stock">stock</option>
+            <option value="etf">etf</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>섹터 *</label>
+          <select class="form-select" id="f-sector" style="width:150px">
+            <option value="broad_market">broad_market</option>
+            <option value="technology">technology</option>
+            <option value="energy">energy</option>
+            <option value="financial">financial</option>
+            <option value="healthcare">healthcare</option>
+            <option value="industrial">industrial</option>
+            <option value="utilities">utilities</option>
+            <option value="staples">staples</option>
+            <option value="discretionary">discretionary</option>
+            <option value="materials">materials</option>
+            <option value="real_estate">real_estate</option>
+            <option value="communication">communication</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>섹터 ETF</label>
+          <input class="form-input sm" id="f-sector-etf" placeholder="XLK">
+        </div>
+        <div class="form-group" style="justify-content:flex-end">
+          <button class="add-btn" onclick="addSymbol()">+ 추가</button>
+        </div>
+      </div>
+      <div class="form-msg" id="form-msg"></div>
+    </div>
+  </div>
+
+  <!-- 종목 목록 -->
+  <div class="section">
+    <div class="section-title">
+      📋 종목 목록
+      <span class="badge" id="list-count">0개</span>
+    </div>
+
+    <!-- 섹터 필터 -->
+    <div class="filter-row" id="sector-filters"></div>
+
+    <div class="sym-table-wrap">
+      <table class="sym-table">
+        <thead>
+          <tr>
+            <th>심볼</th>
+            <th>회사명</th>
+            <th>구분</th>
+            <th>섹터</th>
+            <th>섹터 ETF</th>
+            <th>추가일</th>
+            <th>상태</th>
+            <th>액션</th>
+          </tr>
+        </thead>
+        <tbody id="sym-tbody">
+          <tr><td colspan="8" class="loading">로딩 중...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = 'https://api.drbalance.xyz';
+let SECRET = '';
+let allSymbols = [];
+let currentFilter = 'all';
+
+// ── 인증 ──
+function doAuth() {
+  const val = document.getElementById('secret-input').value.trim();
+  if (!val) return;
+  SECRET = val;
+  // 실제 API 호출로 검증
+  fetch(`${API}/api/admin/symbols?secret=${SECRET}`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.error === 'Unauthorized') {
+        document.getElementById('auth-error').textContent = '❌ 잘못된 비밀번호';
+        SECRET = '';
+        return;
+      }
+      document.getElementById('auth-screen').style.display = 'none';
+      document.getElementById('main-screen').style.display = 'block';
+      allSymbols = data.symbols || [];
+      renderAll();
+      loadStats();
+    })
+    .catch(() => {
+      document.getElementById('auth-error').textContent = '❌ 서버 연결 실패';
+    });
+}
+
+// 엔터키 처리
+document.getElementById('secret-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doAuth();
+});
+
+// ── 통계 로드 ──
+async function loadStats() {
+  try {
+    const r = await fetch(`${API}/api/admin/stats?secret=${SECRET}`);
+    const d = await r.json();
+    document.getElementById('stat-total').textContent  = d.total  || 0;
+    document.getElementById('stat-active').textContent = d.active || 0;
+    document.getElementById('stat-etf').textContent    = d.etf    || 0;
+    document.getElementById('stat-stock').textContent  = d.stock  || 0;
+    document.getElementById('stat-flow').textContent   = d.flow_today || 0;
+  } catch(e) {}
+}
+
+// ── 전체 렌더 ──
+function renderAll() {
+  renderFilters();
+  renderTable();
+}
+
+// ── 섹터 필터 버튼 ──
+function renderFilters() {
+  const sectors = ['all', ...new Set(allSymbols.map(s => s.sector))];
+  const sectorKr = {
+    all:'전체', broad_market:'시장전체', technology:'기술',
+    energy:'에너지', financial:'금융', healthcare:'헬스케어',
+    industrial:'산업재', utilities:'유틸리티', staples:'필수소비재',
+    discretionary:'임의소비재', materials:'소재', real_estate:'부동산',
+    communication:'통신'
+  };
+  const el = document.getElementById('sector-filters');
+  el.innerHTML = sectors.map(s =>
+    `<button class="filter-btn ${s===currentFilter?'active':''}"
+      onclick="setFilter('${s}')">${sectorKr[s]||s}</button>`
+  ).join('');
+}
+
+function setFilter(sector) {
+  currentFilter = sector;
+  renderAll();
+}
+
+// ── 테이블 렌더 ──
+function renderTable() {
+  const filtered = currentFilter === 'all'
+    ? allSymbols
+    : allSymbols.filter(s => s.sector === currentFilter);
+
+  document.getElementById('list-count').textContent = filtered.length + '개';
+
+  const sectorKr = {
+    broad_market:'시장전체', technology:'기술', energy:'에너지',
+    financial:'금융', healthcare:'헬스케어', industrial:'산업재',
+    utilities:'유틸리티', staples:'필수소비재', discretionary:'임의소비재',
+    materials:'소재', real_estate:'부동산', communication:'통신'
+  };
+
+  const tbody = document.getElementById('sym-tbody');
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="loading">종목 없음</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(s => `
+    <tr>
+      <td><span class="sym-symbol">${s.symbol}</span></td>
+      <td style="color:var(--text)">${s.name}</td>
+      <td><span class="type-badge type-${s.type}">${s.type}</span></td>
+      <td>${sectorKr[s.sector]||s.sector}</td>
+      <td style="font-family:var(--mono);color:var(--text3)">${s.sector_etf||'-'}</td>
+      <td style="color:var(--text3)">${s.added_date||'-'}</td>
+      <td>
+        <span class="active-dot ${s.is_active?'on':'off'}"></span>
+        <span style="margin-left:5px;color:${s.is_active?'var(--green)':'var(--text3)'}">
+          ${s.is_active?'모니터링':'중지'}
+        </span>
+      </td>
+      <td>
+        <button class="action-btn toggle-btn ${s.is_active?'on':'off'}"
+          onclick="toggleSymbol('${s.symbol}', ${s.is_active})">
+          ${s.is_active?'중지':'재개'}
+        </button>
+        <button class="action-btn del-btn"
+          onclick="deleteSymbol('${s.symbol}')">삭제</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── 종목 추가 ──
+async function addSymbol() {
+  const symbol    = document.getElementById('f-symbol').value.trim().toUpperCase();
+  const name      = document.getElementById('f-name').value.trim();
+  const type      = document.getElementById('f-type').value;
+  const sector    = document.getElementById('f-sector').value;
+  const sectorEtf = document.getElementById('f-sector-etf').value.trim().toUpperCase() || null;
+  const msgEl     = document.getElementById('form-msg');
+
+  if (!symbol || !name) {
+    msgEl.className = 'form-msg err';
+    msgEl.textContent = '❌ 심볼과 회사명은 필수입니다';
+    return;
+  }
+
+  msgEl.className = 'form-msg';
+  msgEl.textContent = '추가 중...';
+
+  try {
+    const r = await fetch(`${API}/api/admin/add-symbol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: SECRET, symbol, name, type, sector, sector_etf: sectorEtf })
+    });
+    const d = await r.json();
+
+    if (d.error) throw new Error(d.error);
+
+    msgEl.className = 'form-msg ok';
+    msgEl.textContent = `✅ ${symbol} 추가 완료`;
+
+    // 폼 초기화
+    document.getElementById('f-symbol').value = '';
+    document.getElementById('f-name').value = '';
+    document.getElementById('f-sector-etf').value = '';
+
+    // 목록 새로고침
+    await refreshSymbols();
+    loadStats();
+
+  } catch(e) {
+    msgEl.className = 'form-msg err';
+    msgEl.textContent = '❌ ' + e.message;
+  }
+}
+
+// ── 활성화/비활성화 토글 ──
+async function toggleSymbol(symbol, currentActive) {
+  const newActive = currentActive ? 0 : 1;
+  try {
+    const r = await fetch(`${API}/api/admin/toggle-symbol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: SECRET, symbol, is_active: newActive })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    await refreshSymbols();
+  } catch(e) {
+    alert('❌ ' + e.message);
+  }
+}
+
+// ── 종목 삭제 ──
+async function deleteSymbol(symbol) {
+  if (!confirm(`${symbol}을 삭제하시겠습니까?\n관련 플로우 데이터도 모두 삭제됩니다.`)) return;
+  try {
+    const r = await fetch(`${API}/api/admin/delete-symbol`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: SECRET, symbol })
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    await refreshSymbols();
+    loadStats();
+  } catch(e) {
+    alert('❌ ' + e.message);
+  }
+}
+
+// ── 목록 새로고침 ──
+async function refreshSymbols() {
+  const r = await fetch(`${API}/api/admin/symbols?secret=${SECRET}`);
+  const d = await r.json();
+  allSymbols = d.symbols || [];
+  renderAll();
+}
+</script>
+</body>
+</html>
