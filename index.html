@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v7.0</title>
+<title>딜러 리스크 대시보드 v7.1</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -216,7 +216,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v7.0 · <span style="color:#3fb950">Cron+Tab</span></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v7.1 · <span style="color:#3fb950">MD VIX+Div</span></div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
   </div>
@@ -599,20 +599,182 @@ function jlScroll0(dir) {
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  // 0DTE 탭 기본: 바로 로드 + 자동갱신 시작
+  // 0DTE 탭 기본: 바로 로드 + 60초 자동갱신
   load0DTE();
   auto0DTEInterval = setInterval(load0DTE, 60000);
-  // 날짜 탭 만기 목록은 탭 전환 시 로드 (초기엔 불필요)
+  // VIX/VVIX: 30초마다 갱신 (다이버전스 히스토리 누적 + 실시간 표시)
   loadVIX();
+  setInterval(loadVIX, 30000);
+  // 날짜 탭 만기 목록은 탭 전환 시 로드
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RSI 계산 (Wilder RMA 방식, Pine Script 동일)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function calcRSI(prices, length = 14) {
+  if (prices.length < length + 1) return [];
+  const rsiArr = new Array(prices.length).fill(null);
+  // 초기 SMA 시드
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= length; i++) {
+    const chg = prices[i] - prices[i - 1];
+    if (chg > 0) gains += chg; else losses -= chg;
+  }
+  let avgGain = gains / length;
+  let avgLoss = losses / length;
+  rsiArr[length] = avgLoss === 0 ? 100 : 100 - (100 / (1 + avgGain / avgLoss));
+  // Wilder RMA
+  for (let i = length + 1; i < prices.length; i++) {
+    const chg = prices[i] - prices[i - 1];
+    const g = chg > 0 ? chg : 0;
+    const l = chg < 0 ? -chg : 0;
+    avgGain = (avgGain * (length - 1) + g) / length;
+    avgLoss = (avgLoss * (length - 1) + l) / length;
+    rsiArr[i] = avgLoss === 0 ? 100 : avgGain === 0 ? 0 : 100 - (100 / (1 + avgGain / avgLoss));
+  }
+  return rsiArr;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 피벗 고점/저점 감지 (Pine Script pivothigh/pivotlow 동일)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function findPivots(arr, left = 5, right = 5) {
+  const highs = [], lows = [];
+  for (let i = left; i < arr.length - right; i++) {
+    if (arr[i] == null) continue;
+    let isHigh = true, isLow = true;
+    for (let j = i - left; j <= i + right; j++) {
+      if (j === i || arr[j] == null) continue;
+      if (arr[j] >= arr[i]) isHigh = false;
+      if (arr[j] <= arr[i]) isLow = false;
+    }
+    if (isHigh) highs.push({ idx: i, val: arr[i] });
+    if (isLow)  lows.push({ idx: i, val: arr[i] });
+  }
+  return { highs, lows };
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// VIX/VVIX RSI 다이버전스 감지
+// Pine Script 로직 충실히 변환:
+//   Bearish: 가격 HH + RSI LH → VIX 모멘텀 약화 (시장 하락 압력 완화)
+//   Bullish: 가격 LL + RSI HL → VIX 모멘텀 강화 (시장 하락 압력 재개)
+// rangeLower=5, rangeUpper=60 (피벗 간 최소/최대 봉 수)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const divState = {
+  VIX:  { bear: 0, bull: 0 },
+  VVIX: { bear: 0, bull: 0 },
+};
+
+function detectVIXDivergence(prices, symKey, rangeLower = 5, rangeUpper = 60) {
+  if (prices.length < 30) return null; // 데이터 부족
+
+  const rsiArr = calcRSI(prices, 14);
+  const LEFT = 5, RIGHT = 5;
+  const pricePivots = findPivots(prices, LEFT, RIGHT);
+  const rsiPivots   = findPivots(rsiArr,  LEFT, RIGHT);
+
+  // 최신 피벗 기준 (끝에서 가장 최근 2개)
+  const lastPH  = pricePivots.highs.slice(-1)[0];
+  const prevPH  = pricePivots.highs.slice(-2)[0];
+  const lastPL  = pricePivots.lows.slice(-1)[0];
+  const prevPL  = pricePivots.lows.slice(-2)[0];
+  const lastRH  = rsiPivots.highs.slice(-1)[0];
+  const prevRH  = rsiPivots.highs.slice(-2)[0];
+  const lastRL  = rsiPivots.lows.slice(-1)[0];
+  const prevRL  = rsiPivots.lows.slice(-2)[0];
+
+  const inRange = (a, b) => {
+    const bars = Math.abs(a.idx - b.idx);
+    return bars >= rangeLower && bars <= rangeUpper;
+  };
+
+  let bearCond = false, bullCond = false;
+
+  // Bearish: 가격 HH + RSI LH (VIX 상승 모멘텀 약화)
+  if (lastPH && prevPH && lastRH && prevRH && inRange(lastPH, prevPH)) {
+    const priceHH = lastPH.val > prevPH.val;
+    const rsiLH   = lastRH.val < prevRH.val;
+    bearCond = priceHH && rsiLH;
+  }
+
+  // Bullish: 가격 LL + RSI HL (VIX 하락 모멘텀 약화 → 반등 가능)
+  if (lastPL && prevPL && lastRL && prevRL && inRange(lastPL, prevPL)) {
+    const priceLL = lastPL.val < prevPL.val;
+    const rsiHL   = lastRL.val > prevRL.val;
+    bullCond = priceLL && rsiHL;
+  }
+
+  const state = divState[symKey];
+  if (bearCond) {
+    state.bear++;
+    state.bull = 0;
+    return { type: 'bear', count: state.bear };
+  }
+  if (bullCond) {
+    state.bull++;
+    state.bear = 0;
+    return { type: 'bull', count: state.bull };
+  }
+  // 신호 없으면 카운터 유지 (연속성 기록)
+  return null;
+}
+
+// VIX 히스토리 (다이버전스용, 최대 120개)
+let vixPriceHistory  = [];
+let vvixPriceHistory = [];
 
 async function loadVIX() {
   try {
-    const json = await fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json());
-    vixVal = json.VIX?.price;
-    vvixVal = json.VVIX?.price;
+    const data = await fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json());
+
+    // MD App 응답: { VIX: { price: 29.92, prevClose: ..., pctChange: ... } }
+    // price는 숫자 그대로 (VIX=29.92, VVIX=110.5)
+    vixVal  = data.VIX?.price  ?? null;
+    vvixVal = data.VVIX?.price ?? null;
+
+    // 다이버전스용 히스토리 누적
+    if (vixVal  != null) { vixPriceHistory.push(vixVal);   if (vixPriceHistory.length  > 120) vixPriceHistory.shift();  }
+    if (vvixVal != null) { vvixPriceHistory.push(vvixVal); if (vvixPriceHistory.length > 120) vvixPriceHistory.shift(); }
+
+    // 다이버전스 감지
+    const vixDiv  = detectVIXDivergence(vixPriceHistory,  'VIX');
+    const vvixDiv = detectVIXDivergence(vvixPriceHistory, 'VVIX');
+    pushDivergenceEvent(vixDiv,  'VIX');
+    pushDivergenceEvent(vvixDiv, 'VVIX');
+
     updateVIXMetrics();
-  } catch(e){}
+  } catch(e){ console.warn('loadVIX error:', e); }
+}
+
+// 다이버전스 이벤트 → 실시간 판단 패널에 추가
+function pushDivergenceEvent(div, symKey) {
+  if (!div) return;
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' });
+  const countStr = div.count > 1 ? ` (${div.count}회 연속)` : ' (1회)';
+
+  let cls, msg;
+  if (symKey === 'VIX') {
+    if (div.type === 'bear') {
+      cls = 'le-good';
+      msg = `🟢 VIX Bearish Divergence${countStr} — VIX 상승 모멘텀 약화. 하락 압력 완화 가능. Vanna 구조 확인 권장`;
+    } else {
+      cls = 'le-warn';
+      msg = `🔴 VIX Bullish Divergence${countStr} — VIX 하락 모멘텀 약화. 변동성 재상승 주의`;
+    }
+  } else {
+    if (div.type === 'bear') {
+      cls = 'le-good';
+      msg = `🟢 VVIX Bearish Divergence${countStr} — VVIX 모멘텀 약화. VIX 상승 선행 압력 완화`;
+    } else {
+      cls = 'le-warn';
+      msg = `🔴 VVIX Bullish Divergence${countStr} — VVIX 재상승 가능. VIX 선행 급등 주의`;
+    }
+  }
+
+  liveEvents.unshift({ time: timeStr, cls, msg });
+  if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
 }
 
 function updateVIXMetrics() {
