@@ -215,13 +215,142 @@ def main():
 
         time.sleep(0.5)
 
+    print("")
+    print("[볼린저 밴드 계산 시작]")
+    boll_count = 0
+    for sym_info in symbols:
+        symbol = sym_info["symbol"]
+        brow = fetch_bollinger(symbol)
+        if brow:
+            save_bollinger(brow)
+            boll_count += 1
+            sig = brow["signal"]
+            grade = brow["grade"]
+            pct_b = brow["pct_b"]
+            print("  " + symbol + " | " + grade + "등급 | %B=" + str(pct_b) + " | " + sig)
+        time.sleep(0.2)
+
     print("=" * 50)
     print("[완료] " + TODAY)
-    print("  성공: " + str(success_count) + "개")
-    print("  실패: " + str(fail_count) + "개")
-    print("  총: " + str(total_records) + "개")
+    print("  옵션 성공: " + str(success_count) + "개")
+    print("  옵션 실패: " + str(fail_count) + "개")
+    print("  총 레코드: " + str(total_records) + "개")
+    print("  볼린저:    " + str(boll_count) + "개")
     print("=" * 50)
 
 
 if __name__ == "__main__":
     main()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 볼린저 밴드 계산 & 저장
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def fetch_bollinger(symbol):
+    """yfinance로 60일 주가 -> 볼린저 계산"""
+    try:
+        ticker = yf.Ticker(symbol)
+        hist   = ticker.history(period="3mo")  # 약 60거래일
+
+        if len(hist) < 20:
+            return None
+
+        close  = hist["Close"]
+        high   = hist["High"]
+
+        # 20일 이동평균 / 표준편차
+        ma20   = close.rolling(20).mean()
+        std20  = close.rolling(20).std()
+        upper  = ma20 + 2 * std20
+        lower  = ma20 - 2 * std20
+
+        # 오늘 값
+        c   = float(close.iloc[-1])
+        m   = float(ma20.iloc[-1])
+        u   = float(upper.iloc[-1])
+        l   = float(lower.iloc[-1])
+        sig = float(std20.iloc[-1])
+
+        # %B (0=하단, 0.5=중심, 1=상단)
+        pct_b = round((c - l) / (u - l), 4) if (u - l) > 0 else 0.5
+
+        # 최근 20일 중 상단 터치 여부
+        recent_high  = high.iloc[-20:]
+        recent_upper = upper.iloc[-20:]
+        upper_touch  = int((recent_high >= recent_upper * 0.98).any())
+
+        # 등급 판별
+        if upper_touch:
+            grade = "A"   # 주도 종목 — 최근 상단 터치 경험
+        elif pct_b > 0.3:
+            grade = "B"   # 중간 — 하단에서 어느 정도 반등
+        else:
+            grade = "C"   # 약한 — 하단 근처에서 맴돌음
+
+        # 신호 판별
+        signal          = "neutral"
+        signal_strength = 0
+
+        if pct_b <= 0.10:
+            # 하단 10% 이내
+            if grade == "A":
+                signal          = "buy"
+                signal_strength = 3   # 강매수
+            elif grade == "B":
+                signal          = "buy"
+                signal_strength = 2   # 매수
+            else:
+                signal          = "watch"
+                signal_strength = 1   # 관찰 (약한 종목)
+
+        elif pct_b >= 0.90:
+            # 상단 10% 이내
+            signal          = "sell"
+            signal_strength = 3   # 인버스 진입
+
+        elif 0.40 <= pct_b <= 0.60:
+            # 중심선 ±10%
+            signal          = "watch"
+            signal_strength = 1
+
+        return {
+            "date":             TODAY,
+            "symbol":           symbol,
+            "close":            round(c, 2),
+            "ma20":             round(m, 2),
+            "upper":            round(u, 2),
+            "lower":            round(l, 2),
+            "pct_b":            pct_b,
+            "sigma":            round(sig, 4),
+            "upper_touch":      upper_touch,
+            "grade":            grade,
+            "signal":           signal,
+            "signal_strength":  signal_strength,
+        }
+
+    except Exception as e:
+        print("  [WARN] " + symbol + " 볼린저 실패: " + str(e))
+        return None
+
+
+def save_bollinger(row):
+    """bollinger 테이블에 저장"""
+    sql = (
+        "INSERT OR REPLACE INTO bollinger "
+        "(date,symbol,close,ma20,upper,lower,pct_b,sigma,"
+        "upper_touch,grade,signal,signal_strength) VALUES ("
+        + esc(row["date"])             + ","
+        + esc(row["symbol"])           + ","
+        + esc(row["close"])            + ","
+        + esc(row["ma20"])             + ","
+        + esc(row["upper"])            + ","
+        + esc(row["lower"])            + ","
+        + esc(row["pct_b"])            + ","
+        + esc(row["sigma"])            + ","
+        + esc(row["upper_touch"])      + ","
+        + esc(row["grade"])            + ","
+        + esc(row["signal"])           + ","
+        + esc(row["signal_strength"])  + ")"
+    )
+    d1_exec(sql)
