@@ -720,6 +720,27 @@ async function handleInitDb(url, env) {
       ('WMT','Walmart Inc.','stock','staples','XLP',1,date('now')),
       ('KO','Coca-Cola Company','stock','staples','XLP',1,date('now')),
       ('TSLA','Tesla Inc.','stock','discretionary','XLY',1,date('now'))`,
+
+    // 귀금속 / 원자재 ETF
+    `INSERT OR IGNORE INTO symbols VALUES
+      ('GLD', 'SPDR Gold Shares',              'etf', 'commodity_metal',  NULL, 1, date('now')),
+      ('SLV', 'iShares Silver Trust',           'etf', 'commodity_metal',  NULL, 1, date('now')),
+      ('COPX','Global X Copper Miners ETF',     'etf', 'commodity_metal',  NULL, 1, date('now')),
+      ('CORN','Teucrium Corn Fund',              'etf', 'commodity_agri',   NULL, 1, date('now')),
+      ('WEAT','Teucrium Wheat Fund',             'etf', 'commodity_agri',   NULL, 1, date('now')),
+      ('SOYB','Teucrium Soybean Fund',           'etf', 'commodity_agri',   NULL, 1, date('now'))`,
+
+    // 암호화폐 / 국가 ETF
+    `INSERT OR IGNORE INTO symbols VALUES
+      ('IBIT','iShares Bitcoin Trust ETF',      'etf', 'crypto',           NULL, 1, date('now')),
+      ('ECH', 'iShares MSCI Chile ETF',         'etf', 'country',          NULL, 1, date('now'))`,
+
+    // AI / 핀테크 / 빅데이터
+    `INSERT OR IGNORE INTO symbols VALUES
+      ('PLTR','Palantir Technologies',          'stock', 'ai_data',        NULL, 1, date('now')),
+      ('CRWV','CoreWeave Inc.',                 'stock', 'ai_data',        NULL, 1, date('now')),
+      ('COIN','Coinbase Global Inc.',           'stock', 'crypto',         NULL, 1, date('now')),
+      ('HOOD','Robinhood Markets Inc.',         'stock', 'fintech',        NULL, 1, date('now'))`,
   ];
 
   for (const sql of statements) {
