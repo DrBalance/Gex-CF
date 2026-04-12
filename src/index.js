@@ -688,6 +688,26 @@ async function handleInitDb(url, env) {
     `CREATE INDEX IF NOT EXISTS idx_flow_date_symbol ON options_flow(date, symbol)`,
     `CREATE INDEX IF NOT EXISTS idx_flow_symbol_expiry ON options_flow(symbol, expiry_date)`,
     `CREATE INDEX IF NOT EXISTS idx_flow_date_dte ON options_flow(date, dte)`,
+
+    // 볼린저 밴드 테이블
+    `CREATE TABLE IF NOT EXISTS bollinger (
+      date          TEXT NOT NULL,
+      symbol        TEXT NOT NULL,
+      close         REAL,
+      ma20          REAL,
+      upper         REAL,
+      lower         REAL,
+      pct_b         REAL,
+      sigma         REAL,
+      upper_touch   INTEGER DEFAULT 0,
+      grade         TEXT,
+      signal        TEXT,
+      signal_strength INTEGER DEFAULT 0,
+      PRIMARY KEY (date, symbol)
+    )`,
+
+    `CREATE INDEX IF NOT EXISTS idx_boll_date ON bollinger(date)`,
+    `CREATE INDEX IF NOT EXISTS idx_boll_signal ON bollinger(date, signal)`,
     `INSERT OR IGNORE INTO symbols VALUES
       ('SPY','SPDR S&P 500 ETF','etf','broad_market',NULL,1,date('now')),
       ('QQQ','Invesco QQQ Trust','etf','technology',NULL,1,date('now')),
@@ -862,6 +882,84 @@ async function handleAdminDeleteSymbol(request, env) {
   return json({ success: true, deleted: sym });
 }
 
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 볼린저 밴드 API
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function handleBollinger(url, env) {
+  const date   = url.searchParams.get('date') || null;
+  const signal = url.searchParams.get('signal') || null; // buy/sell/watch
+  const grade  = url.searchParams.get('grade') || null;  // A/B/C
+
+  try {
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    let whereClauses = ['b.date = ?'];
+    let params_list  = [targetDate];
+
+    if (signal) { whereClauses.push('b.signal = ?'); params_list.push(signal); }
+    if (grade)  { whereClauses.push('b.grade = ?');  params_list.push(grade); }
+
+    // params 인라인 치환
+    let sql = `
+      SELECT
+        b.symbol, b.date, b.close, b.ma20,
+        b.upper, b.lower, b.pct_b, b.sigma,
+        b.upper_touch, b.grade, b.signal, b.signal_strength,
+        s.name, s.type, s.sector,
+        -- 옵션 데이터 결합 (당일 집계)
+        SUM(f.call_oi) as total_call_oi,
+        SUM(f.put_oi)  as total_put_oi,
+        CASE WHEN SUM(f.call_oi) > 0
+          THEN ROUND(SUM(f.put_oi) * 1.0 / SUM(f.call_oi), 3)
+          ELSE NULL
+        END as pcr_oi,
+        AVG(f.otm_call_iv) as avg_call_iv,
+        AVG(f.otm_put_iv)  as avg_put_iv
+      FROM bollinger b
+      JOIN symbols s USING (symbol)
+      LEFT JOIN options_flow f
+        ON f.symbol = b.symbol AND f.date = b.date
+      WHERE ${whereClauses.join(' AND ')}
+        AND s.is_active = 1
+      GROUP BY b.symbol
+      ORDER BY b.signal_strength DESC, b.pct_b ASC
+    `;
+
+    // WHERE 절 파라미터 인라인 치환
+    for (const p of params_list) {
+      const val = typeof p === 'string' ? "'" + p.replace(/'/g, "''") + "'" : String(p);
+      sql = sql.replace('?', val);
+    }
+
+    const result = await env.DB.prepare(sql).all();
+    const rows   = result.results || [];
+
+    // 신호별 그룹핑
+    const signals = {
+      buy:   rows.filter(r => r.signal === 'buy'),
+      sell:  rows.filter(r => r.signal === 'sell'),
+      watch: rows.filter(r => r.signal === 'watch'),
+      other: rows.filter(r => !['buy','sell','watch'].includes(r.signal)),
+    };
+
+    // 섹터별 요약
+    const sectorMap = {};
+    for (const r of rows) {
+      if (!sectorMap[r.sector]) sectorMap[r.sector] = { buy:0, sell:0, watch:0, total:0 };
+      sectorMap[r.sector].total++;
+      if (r.signal === 'buy')   sectorMap[r.sector].buy++;
+      if (r.signal === 'sell')  sectorMap[r.sector].sell++;
+      if (r.signal === 'watch') sectorMap[r.sector].watch++;
+    }
+
+    return json({ date: targetDate, signals, sector_summary: sectorMap, total: rows.length });
+
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+
 // Screener 핸들러 (/api/screener)
 // ────────────────────────────────────────────
 async function handleScreener(url, env) {
@@ -924,6 +1022,7 @@ export default {
     if (url.pathname === '/api/greeks')     return handleGreeks(url, env);
     if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
     if (url.pathname === '/api/screener')   return handleScreener(url, env);
+    if (url.pathname === '/api/bollinger')  return handleBollinger(url, env);
     if (url.pathname === '/api/init-db')    return handleInitDb(url, env);
 
     // 관리자 API
