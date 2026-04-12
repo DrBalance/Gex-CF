@@ -35,10 +35,16 @@ HEADERS = {
 }
 
 def d1_query(sql, params=None):
-    """D1에 SQL 실행"""
-    payload = {"sql": sql}
+    """D1에 SQL 실행 — 파라미터를 인라인으로 치환"""
     if params:
-        payload["params"] = params
+        def esc(v):
+            if v is None: return "NULL"
+            if isinstance(v, str): return "'" + v.replace("'", "''") + "'"
+            return str(v)
+        # ? 플레이스홀더를 순서대로 치환
+        for p in params:
+            sql = sql.replace("?", esc(p), 1)
+    payload = {"sql": sql}
     r = requests.post(D1_URL, headers=HEADERS, json=payload, timeout=30)
     r.raise_for_status()
     result = r.json()
@@ -47,16 +53,33 @@ def d1_query(sql, params=None):
     return result["result"][0] if result.get("result") else None
 
 def d1_batch(statements):
-    """D1 배치 실행 (여러 SQL 한 번에)"""
-    payload = statements  # [{"sql": "...", "params": [...]}, ...]
-    r = requests.post(
-        D1_URL.replace("/query", "/batch"),
-        headers=HEADERS,
-        json=payload,
-        timeout=60
-    )
+    """여러 INSERT를 하나의 멀티행 INSERT로 합쳐서 /query 한 번 호출"""
+    # 모든 statements가 같은 SQL 구조라고 가정 (INSERT OR REPLACE INTO options_flow)
+    if not statements:
+        return
+    # params 값들을 문자열로 이스케이프해서 단일 쿼리로 합치기
+    rows = []
+    for stmt in statements:
+        params = stmt["params"]
+        def esc(v):
+            if v is None: return "NULL"
+            if isinstance(v, str): return "'" + v.replace("'", "''") + "'"
+            return str(v)
+        rows.append("(" + ",".join(esc(p) for p in params) + ")")
+
+    sql = """INSERT OR REPLACE INTO options_flow
+      (date, symbol, expiry_date, dte,
+       call_vol, put_vol, call_oi, put_oi,
+       pcr_vol, pcr_oi, atm_iv, otm_call_iv, otm_put_iv)
+    VALUES """ + ",
+    ".join(rows)
+
+    r = requests.post(D1_URL, headers=HEADERS, json={"sql": sql}, timeout=60)
     r.raise_for_status()
-    return r.json()
+    result = r.json()
+    if not result.get("success"):
+        raise Exception(f"D1 error: {result.get('errors')}")
+    return result
 
 # ── 활성 종목 목록 가져오기 ──
 def get_active_symbols():
