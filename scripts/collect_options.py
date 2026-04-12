@@ -186,66 +186,6 @@ def update_baseline(symbol):
         print("  [WARN] " + symbol + " baseline: " + str(e))
 
 
-def main():
-    print("[START] Options Collector -- " + TODAY)
-
-    symbols = get_active_symbols()
-    if not symbols:
-        print("[WARN] 활성 종목 없음")
-        return
-
-    total_records = 0
-    success_count = 0
-    fail_count = 0
-
-    for i, sym_info in enumerate(symbols):
-        symbol = sym_info["symbol"]
-        print("[" + str(i+1) + "/" + str(len(symbols)) + "] " + symbol + " 수집 중...")
-
-        records = fetch_options(symbol)
-        if records:
-            saved = save_to_d1(records)
-            update_baseline(symbol)
-            total_records += saved
-            success_count += 1
-            print("  -> " + str(len(records)) + "개 만기, " + str(saved) + "개 저장")
-        else:
-            fail_count += 1
-            print("  -> 데이터 없음")
-
-        time.sleep(0.5)
-
-    print("")
-    print("[볼린저 밴드 계산 시작]")
-    boll_count = 0
-    for sym_info in symbols:
-        symbol = sym_info["symbol"]
-        brow = fetch_bollinger(symbol)
-        if brow:
-            save_bollinger(brow)
-            boll_count += 1
-            sig = brow["signal"]
-            grade = brow["grade"]
-            pct_b = brow["pct_b"]
-            print("  " + symbol + " | " + grade + "등급 | %B=" + str(pct_b) + " | " + sig)
-        time.sleep(0.2)
-
-    print("=" * 50)
-    print("[완료] " + TODAY)
-    print("  옵션 성공: " + str(success_count) + "개")
-    print("  옵션 실패: " + str(fail_count) + "개")
-    print("  총 레코드: " + str(total_records) + "개")
-    print("  볼린저:    " + str(boll_count) + "개")
-    print("=" * 50)
-
-
-if __name__ == "__main__":
-    main()
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 볼린저 밴드 계산 & 저장
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def fetch_bollinger(symbol):
     """yfinance로 60일 주가 -> 볼린저 계산"""
@@ -354,3 +294,64 @@ def save_bollinger(row):
         + esc(row["signal_strength"])  + ")"
     )
     d1_exec(sql)
+
+def main():
+    print("[START] Options Collector -- " + TODAY)
+
+    symbols = get_active_symbols()
+    if not symbols:
+        print("[WARN] 활성 종목 없음")
+        return
+
+    total_records = 0
+    success_count = 0
+    fail_count = 0
+
+    for i, sym_info in enumerate(symbols):
+        symbol = sym_info["symbol"]
+        print("[" + str(i+1) + "/" + str(len(symbols)) + "] " + symbol + " 수집 중...")
+
+        records = fetch_options(symbol)
+        if records:
+            saved = save_to_d1(records)
+            update_baseline(symbol)
+            total_records += saved
+            success_count += 1
+            print("  -> " + str(len(records)) + "개 만기, " + str(saved) + "개 저장")
+        else:
+            fail_count += 1
+            print("  -> 데이터 없음")
+
+        time.sleep(0.5)
+
+    print("")
+    print("[볼린저 밴드 계산 시작]")
+    boll_count = 0
+    for sym_info in symbols:
+        symbol = sym_info["symbol"]
+        brow = fetch_bollinger(symbol)
+        if brow:
+            save_bollinger(brow)
+            boll_count += 1
+            sig = brow["signal"]
+            grade = brow["grade"]
+            pct_b = brow["pct_b"]
+            print("  " + symbol + " | " + grade + "등급 | %B=" + str(pct_b) + " | " + sig)
+        time.sleep(0.2)
+
+    print("=" * 50)
+    print("[완료] " + TODAY)
+    print("  옵션 성공: " + str(success_count) + "개")
+    print("  옵션 실패: " + str(fail_count) + "개")
+    print("  총 레코드: " + str(total_records) + "개")
+    print("  볼린저:    " + str(boll_count) + "개")
+    print("=" * 50)
+
+
+if __name__ == "__main__":
+    main()
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 볼린저 밴드 계산 & 저장
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
