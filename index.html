@@ -293,6 +293,11 @@ tr.flip td{background:rgba(240,136,62,.06)}
   <div class="main">
     <div class="card" style="padding:20px 24px">
 
+      <!-- 볼린저 신호 패널 -->
+      <div id="boll-panel" style="margin-bottom:20px">
+        <div style="color:var(--text3);font-size:12px;padding:8px">로딩 중...</div>
+      </div>
+
       <!-- 헤더 -->
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <div style="font-size:16px;font-weight:700;color:var(--text1)">
@@ -389,7 +394,7 @@ function switchTab(tab) {
   // 날짜 탭 최초 진입 시 만기 목록 로드
   if (tab === 'date' && !allOptions.length) loadExpirations();
   // 스크리너 탭 최초 진입 시 데이터 로드
-  if (tab === 'screener') loadScreener();
+  if (tab === 'screener') { loadBollinger(); loadScreener(); }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -401,6 +406,130 @@ function switchTab(tab) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const API_BASE = 'https://api.drbalance.xyz';
 let screenerLoaded = false;
+
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 볼린저 밴드 신호 카드
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function loadBollinger() {
+  const el = document.getElementById('boll-panel');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px">로딩 중...</div>';
+
+  try {
+    const res  = await fetch(API_BASE + '/api/bollinger');
+    const data = await res.json();
+
+    if (data.error || data.total === 0) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px">데이터 수집 후 표시됩니다</div>';
+      return;
+    }
+
+    const { signals, sector_summary } = data;
+
+    // 섹터 요약 히트맵
+    const sectorKr = {
+      broad_market:'시장', technology:'기술', energy:'에너지',
+      financial:'금융', healthcare:'헬스', industrial:'산업재',
+      utilities:'유틸', staples:'필수소비재', discretionary:'임의소비재',
+      commodity_metal:'귀금속', commodity_agri:'농산물',
+      crypto:'암호화폐', country:'국가ETF', ai_data:'AI', fintech:'핀테크'
+    };
+
+    let sectorHtml = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px">';
+    for (const [sector, stat] of Object.entries(sector_summary)) {
+      const total = stat.total;
+      if (!total) continue;
+      // 섹터 색상: 매수가 많으면 green, 매도가 많으면 red
+      const buyRatio  = stat.buy  / total;
+      const sellRatio = stat.sell / total;
+      let bg = 'var(--bg3)';
+      let tc = 'var(--text3)';
+      if (buyRatio >= 0.3)  { bg = 'rgba(63,185,80,.12)';  tc = 'var(--green)'; }
+      if (sellRatio >= 0.3) { bg = 'rgba(248,81,73,.12)';  tc = 'var(--red)'; }
+
+      sectorHtml += `
+        <div style="background:${bg};border:1px solid var(--border);border-radius:6px;
+                    padding:6px 10px;cursor:pointer;min-width:70px;text-align:center"
+             onclick="filterBollBySecotor('${sector}')">
+          <div style="font-size:11px;color:${tc};font-weight:700">
+            ${sectorKr[sector]||sector}
+          </div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">
+            🟢${stat.buy} 🔴${stat.sell} 👀${stat.watch}
+          </div>
+        </div>`;
+    }
+    sectorHtml += '</div>';
+
+    // 신호 카드
+    const signalConfig = {
+      buy:   { label:'🟢 매수 신호', bg:'rgba(63,185,80,.08)',  border:'rgba(63,185,80,.25)'  },
+      sell:  { label:'🔴 인버스 신호', bg:'rgba(248,81,73,.08)', border:'rgba(248,81,73,.25)' },
+      watch: { label:'👀 관찰 신호', bg:'rgba(210,153,34,.08)', border:'rgba(210,153,34,.25)' },
+    };
+
+    let cardsHtml = '';
+    for (const [type, cfg] of Object.entries(signalConfig)) {
+      const rows = signals[type] || [];
+      if (!rows.length) continue;
+
+      cardsHtml += `
+        <div style="background:${cfg.bg};border:1px solid ${cfg.border};
+                    border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:10px">
+            ${cfg.label} <span style="font-size:11px;font-weight:400;color:var(--text3)">${rows.length}개</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">`;
+
+      for (const r of rows) {
+        const pctB    = (r.pct_b * 100).toFixed(0);
+        const strength = '★'.repeat(r.signal_strength || 1);
+        const gradeColor = r.grade === 'A' ? 'var(--blue)' :
+                           r.grade === 'B' ? 'var(--yellow)' : 'var(--text3)';
+
+        // 옵션 확인 (PCR 낮으면 call 쏠림)
+        let optSign = '';
+        if (r.pcr_oi !== null && r.pcr_oi !== undefined) {
+          if (type === 'buy'  && r.pcr_oi < 0.7) optSign = ' ✅옵션확인';
+          if (type === 'sell' && r.pcr_oi > 1.5) optSign = ' ✅옵션확인';
+        }
+
+        cardsHtml += `
+          <div style="background:var(--bg2);border:1px solid var(--border);
+                      border-radius:6px;padding:8px 12px;min-width:130px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font-weight:700;color:var(--text);font-family:var(--mono)">
+                ${r.symbol}
+              </span>
+              <span style="font-size:10px;color:${gradeColor};font-weight:700">
+                ${r.grade}등급
+              </span>
+            </div>
+            <div style="font-size:11px;color:var(--text3);margin-top:4px">
+              %B: <span style="color:var(--text2)">${pctB}%</span>
+              · $${r.close}
+            </div>
+            <div style="font-size:11px;margin-top:2px">
+              <span style="color:var(--yellow)">${strength}</span>
+              <span style="color:var(--green);font-size:10px">${optSign}</span>
+            </div>
+          </div>`;
+      }
+      cardsHtml += '</div></div>';
+    }
+
+    el.innerHTML = sectorHtml + cardsHtml;
+
+  } catch(err) {
+    el.innerHTML = '<div style="color:var(--red);font-size:12px;padding:8px">⚠️ ' + err.message + '</div>';
+  }
+}
+
+function filterBollBySecotor(sector) {
+  // 섹터 클릭 시 하단 스크리너 필터 연동 (향후 구현)
+  console.log('섹터 필터:', sector);
+}
 
 async function loadScreener() {
   const type = document.getElementById('screener-type')?.value || 'all';
