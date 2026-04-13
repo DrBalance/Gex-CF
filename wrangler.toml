@@ -13,6 +13,5 @@ database_name = "options-screener"
 database_id = "placeholder"  # wrangler d1 create 후 실제 ID로 교체 필요
 
 [triggers]
-# UTC 기준: 13:30~21:00 월-금 (EST 09:30~17:00)
-# 10분마다: KV write ~84회/일 (무료 한도 1,000회 여유 확보)
-crons = ["*/10 13-20 * * 1-5", "0 21 * * 1-5"]
+# UTC 기준: 13:30~21:00 월-금 (EST 09:30~17:00) 5분마다
+crons = ["*/5 13-20 * * 1-5", "0 21 * * 1-5"]
