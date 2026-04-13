@@ -356,7 +356,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
 
 <script>
 const PROXY = 'https://api.drbalance.xyz';
-let chartInst = null, vcChartInst = null;
+let chartInst = null, chartInstDate = null, vcChartInst = null, vcChartInstDate = null;
 let allOptions = [], spotPrice = 0, vixVal = null, vvixVal = null;
 let currentStrikes = [], currentD = null;
 let autoInterval = null;
@@ -395,6 +395,24 @@ function switchTab(tab) {
   if (tab === 'date' && !allOptions.length) loadExpirations();
   // 스크리너 탭 최초 진입 시 데이터 로드
   if (tab === 'screener') { loadBollinger(); loadScreener(); }
+  // 0DTE 탭 복귀 시 차트 복원
+  if (tab === '0dte' && currentD) {
+    requestAnimationFrame(() => {
+      const chartData = currentStrikes.filter(
+        s => Math.abs(s.strike - currentD.spotPrice) / currentD.spotPrice < 0.08
+      );
+      buildChart(chartData, currentD.spotPrice, currentD.flipZone, currentD.putWall, currentD.callWall, '');
+    });
+  }
+  // 날짜 탭 복귀 시 차트 복원
+  if (tab === 'date' && currentD) {
+    requestAnimationFrame(() => {
+      const chartData = currentStrikes.filter(
+        s => Math.abs(s.strike - currentD.spotPrice) / currentD.spotPrice < 0.08
+      );
+      buildChart(chartData, currentD.spotPrice, currentD.flipZone, currentD.putWall, currentD.callWall, '-date');
+    });
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2341,15 +2359,20 @@ function updateVCZoom(val) {
 }
 
 function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
-  if (chartInst){chartInst.destroy();chartInst=null;}
+  const _isDate = (sfx === '-date');
+  // 탭별 인스턴스 독립 관리 — 한 탭의 destroy가 다른 탭에 영향 없음
+  if (_isDate) { if (chartInstDate){chartInstDate.destroy();chartInstDate=null;} }
+  else          { if (chartInst){chartInst.destroy();chartInst=null;} }
+
   const wrap=document.getElementById('chart-scroll-wrap'+(sfx||''));
   const inner=document.getElementById('chart-inner'+(sfx||''));
+  if (!wrap || !inner) { console.warn('[buildChart] wrap/inner 없음', sfx); return; }
   const baseW=wrap.clientWidth||window.innerWidth-56;
   inner.style.width=Math.max(baseW, baseW*zoomLevel)+'px';
 
   const canvas = document.getElementById('mainchart'+(sfx||''));
   if (!canvas) { console.warn('[buildChart] canvas 없음: mainchart'+(sfx||'')); return; }
-  chartInst=new Chart(canvas,{
+  const _chartInst=new Chart(canvas,{
     data:{
       labels:chartData.map(s=>s.strike%5===0?'$'+s.strike:''),
       datasets:[
@@ -2365,7 +2388,7 @@ function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
     options:{
       responsive:true,maintainAspectRatio:false,
       interaction:{mode:'index',intersect:false},
-      onHover:(e,els)=>{ if(chartInst) chartInst._hoveredIdx = els.length ? els[0].index : null; },
+      onHover:(e,els)=>{ const _ci=_isDate?chartInstDate:chartInst; if(_ci) _ci._hoveredIdx = els.length ? els[0].index : null; },
       plugins:{
         legend:{display:true,position:'top',align:'start',labels:{color:'#8b949e',font:{size:12},boxWidth:12,padding:16}},
         tooltip:{
@@ -2551,12 +2574,24 @@ function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
   });
 
   // 스크롤 시 y축 재드로우
-  const mainWrap = document.getElementById('chart-scroll-wrap');
+  const mainWrap = document.getElementById('chart-scroll-wrap'+(sfx||''));
   if (mainWrap) {
     mainWrap._scrollHandler && mainWrap.removeEventListener('scroll', mainWrap._scrollHandler);
-    mainWrap._scrollHandler = () => { if (chartInst) chartInst.draw(); };
+    mainWrap._scrollHandler = () => {
+      if (_isDate) { if(chartInstDate) chartInstDate.draw(); }
+      else          { if(chartInst) chartInst.draw(); }
+    };
     mainWrap.addEventListener('scroll', mainWrap._scrollHandler, { passive: true });
   }
+  // 인스턴스 저장
+  if (_isDate) chartInstDate = _chartInst;
+  else chartInst = _chartInst;
+}
+
+// chart instance 저장 헬퍼
+function _saveChartInst(inst, isDate) {
+  if (isDate) chartInstDate = inst;
+  else chartInst = inst;
 }
 
 function updateZoom(val){
