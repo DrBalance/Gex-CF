@@ -735,6 +735,23 @@ async function compute0DTE(env, symbol) {
   };
 }
 
+
+// ── /api/vc_history — 당일 Vanna/Charm 시계열 (KV) ──
+async function handleVCHistory(url, env) {
+  const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const todayEST = nowEST.toLocaleDateString('en-CA');
+  const histKey = `vc_history:${symbol}:${todayEST}`;
+
+  try {
+    const stored = await env.CACHE.get(histKey);
+    const history = stored ? JSON.parse(stored) : [];
+    return json({ symbol, date: todayEST, history });
+  } catch (err) {
+    return json({ error: err.message }, 500);
+  }
+}
+
 // ── /api/gex0dte — KV 읽기 전용 (클라이언트용) ──
 async function handleGex0DTE(url, env) {
   const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
@@ -1161,6 +1178,7 @@ export default {
     if (url.pathname === '/api/vannacharm') return handleVannaCharm(url, env);
     if (url.pathname === '/api/greeks')     return handleGreeks(url, env);
     if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
+    if (url.pathname === '/api/vc_history')  return handleVCHistory(url, env);
     if (url.pathname === '/api/screener')   return handleScreener(url, env);
     if (url.pathname === '/api/bollinger')  return handleBollinger(url, env);
     if (url.pathname === '/api/init-db')    return handleInitDb(url, env);
@@ -1176,15 +1194,59 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
+    const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+    const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+    const todayEST = nowEST.toLocaleDateString('en-CA'); // "2026-04-14"
+
+    // 장 마감(16:00)이면 당일 시계열 초기화 예약 (TTL로 자동 만료되므로 별도 처리 불필요)
     const symbols = ['SPY', 'QQQ', 'IWM'];
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
+
+        // 1. gex0dte 현재 스냅샷 저장 (클라이언트 실시간 조회용)
         try {
           await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
         } catch (kvErr) {
           console.warn(`[Cron] KV put skipped for ${sym}: ${kvErr.message}`);
         }
+
+        // 2. Vanna/Charm 시계열 append (프리마켓 04:00 ~ 장 마감 16:30까지)
+        if (estHour >= 4 && estHour < 16.5) {
+          const histKey = `vc_history:${sym}:${todayEST}`;
+          const timeStr = nowEST.toTimeString().slice(0, 5); // "09:35"
+          const newPoint = {
+            time:  timeStr,
+            vanna: data.vanna  != null ? parseFloat(data.vanna.toFixed(2))  : null,
+            charm: data.charm  != null ? parseFloat(data.charm.toFixed(2))  : null,
+            gex:   data.localGEX != null ? parseFloat(data.localGEX.toFixed(2)) : null,
+            vix:   null, // 클라이언트에서 병합
+            spot:  data.spotPrice ?? null,
+          };
+
+          try {
+            // 기존 시계열 로드 후 append
+            let history = [];
+            const stored = await env.CACHE.get(histKey);
+            if (stored) history = JSON.parse(stored);
+
+            // 장 시작(09:30) 이전 첫 진입이면 초기화
+            if (history.length > 0) {
+              const lastDate = history[0]?._date;
+              if (lastDate && lastDate !== todayEST) history = []; // 날짜 바뀌면 초기화
+            }
+
+            history.push({ ...newPoint, _date: todayEST });
+            // 최대 200포인트 (5분 × 200 = 약 17시간)
+            if (history.length > 200) history = history.slice(-200);
+
+            await env.CACHE.put(histKey, JSON.stringify(history), { expirationTtl: 86400 }); // 24시간
+            console.log(`[Cron] ${sym} vc_history appended: ${timeStr} (${history.length}pts)`);
+          } catch (kvErr) {
+            console.warn(`[Cron] vc_history put skipped for ${sym}: ${kvErr.message}`);
+          }
+        }
+
         console.log(`[Cron] ${sym} 0DTE computed`);
       } catch (err) {
         console.error(`[Cron] ${sym} failed: ${err.message}`);
