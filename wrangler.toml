@@ -10,9 +10,9 @@ id = "59baf409d2d64e4cb9f0a6a2d50cd8a2"
 [[d1_databases]]
 binding = "DB"
 database_name = "options-screener"
-database_id = "35b4574c-3e3e-4d85-b12d-7cf857414db7"  # wrangler d1 create 후 실제 ID로 교체 필요
+database_id = "placeholder"  # wrangler d1 create 후 실제 ID로 교체 필요
 
 [triggers]
-# UTC 기준: 13:25~20:55 월-금 (EST 09:25~16:55) 5분마다
-crons = ["*/5 13-20 * * 1-5", "0 21 * * 1-5"]
-# 추가: 21:00 UTC (장 마감 후 16:00 EST) - 일간 스크리너 데이터 수집
+# UTC 기준: 13:30~21:00 월-금 (EST 09:30~17:00)
+# 10분마다: KV write ~84회/일 (무료 한도 1,000회 여유 확보)
+crons = ["*/10 13-20 * * 1-5", "0 21 * * 1-5"]
