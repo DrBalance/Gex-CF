@@ -1379,8 +1379,11 @@ function getTimeIndex(timeStr) {
 }
 
 function renderVCChart() {
-  const wrap = document.getElementById('vc-scroll-wrap');
-  const inner = document.getElementById('vc-chart-inner');
+  // 현재 활성 탭 감지
+  const isDateTab = document.getElementById('area-date')?.style.display !== 'none';
+  const vsfx = isDateTab ? '-date' : '';
+  const wrap = document.getElementById('vc-scroll-wrap' + vsfx);
+  const inner = document.getElementById('vc-chart-inner' + vsfx);
   if (!wrap || !inner) return;
 
   // vcHistory가 비어있으면 대기 메시지 표시 (차트 그리지 않음)
@@ -1392,7 +1395,7 @@ function renderVCChart() {
 
   // canvas 항상 재생성 (destroy 후 오염 방지)
   if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
-  inner.innerHTML = '<canvas id="vc-chart"></canvas>';
+  inner.innerHTML = '<canvas id="vc-chart-date"></canvas>';
 
   const baseW = wrap.clientWidth || 600;
   inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
@@ -1490,7 +1493,7 @@ function renderVCChart() {
     }
   };
 
-  vcChartInst = new Chart(document.getElementById('vc-chart'), {
+  vcChartInst = new Chart(document.getElementById('vc-chart' + vsfx), {
     type: 'line',
     data: {
       labels: timeLabels,
@@ -1598,7 +1601,7 @@ function renderVCChart() {
       // scroll wrap 위에 y축 영역을 매 프레임 다시 그려 항상 보이게 함
       id: 'vcStickyY',
       afterDraw(chart) {
-        const wrap = document.getElementById('vc-scroll-wrap');
+        const wrap = document.getElementById('vc-scroll-wrap-date');
         if (!wrap) return;
         const yScale = chart.scales['y'];
         const yVixScale = chart.scales['yVix'];
@@ -1659,7 +1662,7 @@ function renderVCChart() {
   });
 
   // 스크롤 시 y축 재드로우 (sticky 효과)
-  const vcWrap = document.getElementById('vc-scroll-wrap');
+  const vcWrap = document.getElementById('vc-scroll-wrap' + (typeof vsfx !== 'undefined' ? vsfx : ''));
   if (vcWrap) {
     vcWrap._scrollHandler && vcWrap.removeEventListener('scroll', vcWrap._scrollHandler);
     vcWrap._scrollHandler = () => { if (vcChartInst) vcChartInst.draw(); };
@@ -2257,8 +2260,8 @@ function render(d){
         <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
         <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
       </div>
-      <div class="vc-scroll-wrap" id="vc-scroll-wrap">
-        <div class="vc-chart-inner" id="vc-chart-inner">
+      <div class="vc-scroll-wrap" id="vc-scroll-wrap-date">
+        <div class="vc-chart-inner" id="vc-chart-inner-date">
           <canvas id="vc-chart"></canvas>
         </div>
       </div>
@@ -2273,8 +2276,8 @@ function render(d){
       <span class="zoom-val" id="zoom-val">1×</span>
       <span class="scroll-hint">← 가로 스크롤 →</span>
     </div>
-    <div class="chart-scroll-wrap" id="chart-scroll-wrap">
-      <div class="chart-inner" id="chart-inner"><canvas id="mainchart"></canvas></div>
+    <div class="chart-scroll-wrap" id="chart-scroll-wrap-date">
+      <div class="chart-inner" id="chart-inner-date"><canvas id="mainchart-date"></canvas></div>
     </div>
   </div>
 
@@ -2282,7 +2285,7 @@ function render(d){
     <div class="card-title">스트라이크별 상세 — 현재가 ±10%</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Strike</th><th>Call OI</th><th>Put OI</th><th>GEX(M)</th><th>Call Vol</th><th>Put Vol</th><th>IV</th></tr></thead>
-      <tbody id="tbl-body"></tbody>
+      <tbody id="tbl-body-date"></tbody>
     </table></div>
   </div>`;
 
@@ -2303,11 +2306,13 @@ function render(d){
     fixedEl.dataset.rendered = '1';
   }
 
-  // 차트
-  buildChart(chartData, spotPrice, flipZone, putWall, callWall);
+  // 차트 — DOM 렌더링 완료 후 실행
+  requestAnimationFrame(() => {
+    buildChart(chartData, spotPrice, flipZone, putWall, callWall, '-date');
+  });
 
   // 테이블
-  const tbody=document.getElementById('tbl-body');
+  const tbody=document.getElementById('tbl-body-date');
   tableData.forEach(s=>{
     const isCur=Math.abs(s.strike-spotPrice)<0.5;
     const isFlip=s.strike===flipZone,isPW=s.strike===putWall,isCW=s.strike===callWall;
@@ -2333,14 +2338,16 @@ function updateVCZoom(val) {
   renderVCChart();
 }
 
-function buildChart(chartData, sp, flipZone, putWall, callWall) {
+function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
   if (chartInst){chartInst.destroy();chartInst=null;}
-  const wrap=document.getElementById('chart-scroll-wrap');
-  const inner=document.getElementById('chart-inner');
+  const wrap=document.getElementById('chart-scroll-wrap'+(sfx||''));
+  const inner=document.getElementById('chart-inner'+(sfx||''));
   const baseW=wrap.clientWidth||window.innerWidth-56;
   inner.style.width=Math.max(baseW, baseW*zoomLevel)+'px';
 
-  chartInst=new Chart(document.getElementById('mainchart'),{
+  const canvas = document.getElementById('mainchart'+(sfx||''));
+  if (!canvas) { console.warn('[buildChart] canvas 없음: mainchart'+(sfx||'')); return; }
+  chartInst=new Chart(canvas,{
     data:{
       labels:chartData.map(s=>s.strike%5===0?'$'+s.strike:''),
       datasets:[
