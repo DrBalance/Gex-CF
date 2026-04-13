@@ -40,7 +40,6 @@ async function withCache(env, key, ttl, fetcher) {
     const cached = await env.CACHE.get(key);
     if (cached) {
       const parsed = JSON.parse(cached);
-      // 캐시 출처 표시 (디버깅용)
       if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
         parsed._cached = true;
         parsed._cacheKey = key;
@@ -54,7 +53,8 @@ async function withCache(env, key, ttl, fetcher) {
   try {
     await env.CACHE.put(key, JSON.stringify(data), { expirationTtl: ttl });
   } catch (e) {
-    console.error('KV put failed:', e.message);
+    // KV 한도 초과 시 무시하고 계속 진행
+    console.warn('KV put skipped:', e.message);
   }
 
   return data;
@@ -210,46 +210,116 @@ async function handleOptionsMDCached(url, env, symbol) {
   }
 }
 
-// ── /api/price ──
+// ── /api/price — Market Data App 실시간 (Yahoo 폴백) ──
 async function handlePrice(url, env) {
   const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
   if (!/^[A-Z]{1,10}$/.test(symbol)) {
     return json({ error: 'Invalid symbol' }, 400);
   }
 
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+  const todayStr = nowEST.toLocaleDateString('en-CA');
+
   try {
-    const data = await withCache(env, `price:${symbol}`, 60, async () => {
-      const r = await fetch(
+    // 1. Market Data App — 실시간 현재가 (프리/정규/애프터 자동 포함)
+    let price = null, marketState = 'REGULAR', priceLabel = 'regular';
+    let preMarketPrice = null, postMarketPrice = null;
+    let preMarketChangePercent = null, postMarketChangePercent = null;
+
+    try {
+      const mdR = await fetch(
+        `https://api.marketdata.app/v1/stocks/quotes/${symbol}/`,
+        {
+          headers: {
+            'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      if (mdR.ok) {
+        const mdJ = await mdR.json();
+        if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
+          price = mdJ.last[0];
+
+          // MD App marketStatus: premarket / open / postmarket / closed
+          const status = mdJ.marketStatus?.[0] || 'open';
+          if (status === 'premarket') {
+            marketState = 'PRE'; priceLabel = 'preMarket';
+            preMarketPrice = price;
+          } else if (status === 'postmarket' || status === 'closed') {
+            marketState = 'POST'; priceLabel = 'postMarket';
+            postMarketPrice = price;
+          } else {
+            marketState = 'REGULAR'; priceLabel = 'regular';
+          }
+        }
+      }
+    } catch (mdErr) {
+      console.warn(`MD App price ${symbol} failed: ${mdErr.message}`);
+    }
+
+    // 2. Yahoo 폴백 (MD App 실패 시)
+    if (price == null) {
+      const yR = await fetch(
         `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`,
         { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
       );
-      const j = await r.json();
-      const meta = j?.chart?.result?.[0]?.meta;
-      if (!meta) throw new Error('No meta');
+      const yJ = await yR.json();
+      const meta = yJ?.chart?.result?.[0]?.meta;
+      if (!meta) throw new Error('No data');
 
-      const marketState = meta.marketState;
-      let price, priceLabel;
+      marketState = meta.marketState || 'REGULAR';
       if (marketState === 'PRE' && meta.preMarketPrice) {
         price = meta.preMarketPrice; priceLabel = 'preMarket';
+        preMarketPrice = meta.preMarketPrice;
+        preMarketChangePercent = meta.preMarketChangePercent ?? null;
       } else if (marketState === 'POST' && meta.postMarketPrice) {
         price = meta.postMarketPrice; priceLabel = 'postMarket';
+        postMarketPrice = meta.postMarketPrice;
+        postMarketChangePercent = meta.postMarketChangePercent ?? null;
       } else {
         price = meta.regularMarketPrice; priceLabel = 'regular';
       }
+    }
 
-      return {
-        symbol, price, priceLabel, marketState,
-        regularPrice:            meta.regularMarketPrice,
-        prevClose:               meta.chartPreviousClose,
-        preMarketPrice:          meta.preMarketPrice          ?? null,
-        postMarketPrice:         meta.postMarketPrice         ?? null,
-        preMarketChangePercent:  meta.preMarketChangePercent  ?? null,
-        postMarketChangePercent: meta.postMarketChangePercent ?? null,
-        preMarketTime:           meta.preMarketTime  ? new Date(meta.preMarketTime  * 1000).toISOString() : null,
-        postMarketTime:          meta.postMarketTime ? new Date(meta.postMarketTime * 1000).toISOString() : null,
-      };
+    // 3. prevClose: KV에서 전일 종가 조회
+    const prevCloseKey = `price_prev:${symbol}`;
+    let prevClose = null;
+    try {
+      const stored = await env.CACHE.get(prevCloseKey);
+      if (stored) {
+        const obj = JSON.parse(stored);
+        if (obj.date !== todayStr) prevClose = obj.price;
+      }
+    } catch (_) {}
+
+    // 정규장 종료 후 오늘 종가 저장 → 내일의 prevClose
+    if (estHour >= 16 && marketState === 'REGULAR' && price != null) {
+      try {
+        await env.CACHE.put(prevCloseKey,
+          JSON.stringify({ date: todayStr, price }),
+          { expirationTtl: 86400 * 3 }
+        );
+      } catch (_) {}
+    }
+
+    // prevChange 계산
+    const prevChange = (price != null && prevClose != null)
+      ? +((price - prevClose) / prevClose * 100).toFixed(2) : null;
+
+    return json({
+      symbol, price, priceLabel, marketState,
+      regularPrice: marketState === 'REGULAR' ? price : null,
+      prevClose,
+      prevChange,
+      preMarketPrice,
+      postMarketPrice,
+      preMarketChangePercent,
+      postMarketChangePercent,
     });
-    return json(data);
+
   } catch (err) {
     return json({ error: err.message }, 500);
   }
@@ -669,9 +739,8 @@ async function handleGex0DTE(url, env) {
     if (cached) {
       return json(JSON.parse(cached));
     }
-    // KV에 없으면 즉석 계산 후 저장
+    // KV에 없으면 즉석 계산 — KV 저장 생략 (한도 절약)
     const data = await compute0DTE(env, symbol);
-    await env.CACHE.put(`gex0dte:${symbol}`, JSON.stringify(data), { expirationTtl: 600 });
     return json({ ...data, source: 'on_demand_computed' });
   } catch (err) {
     return json({ error: err.message, symbol }, 500);
@@ -1105,7 +1174,11 @@ export default {
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
-        await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
+        try {
+          await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
+        } catch (kvErr) {
+          console.warn(`[Cron] KV put skipped for ${sym}: ${kvErr.message}`);
+        }
         console.log(`[Cron] ${sym} 0DTE computed`);
       } catch (err) {
         console.error(`[Cron] ${sym} failed: ${err.message}`);
