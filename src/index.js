@@ -243,16 +243,22 @@ async function handlePrice(url, env) {
         if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
           price = mdJ.last[0];
 
-          // MD App marketStatus: premarket / open / postmarket / closed
-          const status = mdJ.marketStatus?.[0] || 'open';
-          if (status === 'premarket') {
+          // MD App은 marketStatus 미제공 → EST 현재 시각으로 직접 판단
+          const estHourNow = nowEST.getHours() + nowEST.getMinutes() / 60;
+          const estDow = nowEST.getDay(); // 0=일, 6=토
+          const isWeekday = estDow >= 1 && estDow <= 5;
+
+          if (!isWeekday || estHourNow < 4 || estHourNow >= 20) {
+            marketState = 'CLOSED'; priceLabel = 'regular';
+          } else if (estHourNow >= 4 && estHourNow < 9.5) {
             marketState = 'PRE'; priceLabel = 'preMarket';
             preMarketPrice = price;
-          } else if (status === 'postmarket' || status === 'closed') {
+          } else if (estHourNow >= 9.5 && estHourNow < 16) {
+            marketState = 'REGULAR'; priceLabel = 'regular';
+          } else {
+            // 16:00 ~ 20:00
             marketState = 'POST'; priceLabel = 'postMarket';
             postMarketPrice = price;
-          } else {
-            marketState = 'REGULAR'; priceLabel = 'regular';
           }
         }
       }
