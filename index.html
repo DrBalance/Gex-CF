@@ -947,7 +947,9 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
   });
 
   // 차트 & 테이블
-  buildChart(chartData, newSpot || spotPrice, flipZone, putWall, callWall);
+  requestAnimationFrame(() => {
+    buildChart(chartData, newSpot || spotPrice, flipZone, putWall, callWall);
+  });
   const tbody = document.getElementById('tbl-body-0dte');
   if (tbody) tableData.forEach(s => {
     const isCur = Math.abs(s.strike - (newSpot||spotPrice)) < 0.5;
@@ -2559,10 +2561,13 @@ function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
 
 function updateZoom(val){
   zoomLevel=parseFloat(val);
-  document.getElementById('zoom-val').textContent=val+'×';
+  const isDateTab = document.getElementById('area-date')?.style.display !== 'none';
+  const zsfx = isDateTab ? '-date' : '';
+  const zv = document.getElementById('zoom-val' + zsfx);
+  if(zv) zv.textContent = val+'×';
   if(!currentD) return;
   const chartData=currentStrikes.filter(s=>Math.abs(s.strike-currentD.spotPrice)/currentD.spotPrice<0.08);
-  buildChart(chartData,currentD.spotPrice,currentD.flipZone,currentD.putWall,currentD.callWall);
+  buildChart(chartData,currentD.spotPrice,currentD.flipZone,currentD.putWall,currentD.callWall, zsfx);
 }
 </script>
 </body>
