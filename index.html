@@ -395,22 +395,23 @@ function switchTab(tab) {
   if (tab === 'date' && !allOptions.length) loadExpirations();
   // 스크리너 탭 최초 진입 시 데이터 로드
   if (tab === 'screener') { loadBollinger(); loadScreener(); }
-  // 0DTE 탭 복귀 시 차트 복원
+  // 탭 복귀 시 GEX 차트 복원
   if (tab === '0dte' && currentD) {
     requestAnimationFrame(() => {
       const chartData = currentStrikes.filter(
         s => Math.abs(s.strike - currentD.spotPrice) / currentD.spotPrice < 0.08
       );
       buildChart(chartData, currentD.spotPrice, currentD.flipZone, currentD.putWall, currentD.callWall, '');
+      if (vcHistory.length > 0) renderVCChart();
     });
   }
-  // 날짜 탭 복귀 시 차트 복원
   if (tab === 'date' && currentD) {
     requestAnimationFrame(() => {
       const chartData = currentStrikes.filter(
         s => Math.abs(s.strike - currentD.spotPrice) / currentD.spotPrice < 0.08
       );
       buildChart(chartData, currentD.spotPrice, currentD.flipZone, currentD.putWall, currentD.callWall, '-date');
+      if (vcHistory.length > 0) renderVCChart();
     });
   }
 }
@@ -1399,23 +1400,27 @@ function getTimeIndex(timeStr) {
 }
 
 function renderVCChart() {
-  // 현재 활성 탭 감지
+  // 현재 활성 탭 감지 — 탭별 인스턴스 독립 관리
   const isDateTab = document.getElementById('area-date')?.style.display !== 'none';
   const vsfx = isDateTab ? '-date' : '';
+  const _vcInst = isDateTab ? vcChartInstDate : vcChartInst;
+
   const wrap = document.getElementById('vc-scroll-wrap' + vsfx);
   const inner = document.getElementById('vc-chart-inner' + vsfx);
   if (!wrap || !inner) return;
 
-  // vcHistory가 비어있으면 대기 메시지 표시 (차트 그리지 않음)
+  // vcHistory가 비어있으면 대기 메시지 표시
   if (vcHistory.length === 0) {
-    if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
+    if (isDateTab) { if (vcChartInstDate){vcChartInstDate.destroy();vcChartInstDate=null;} }
+    else            { if (vcChartInst){vcChartInst.destroy();vcChartInst=null;} }
     inner.innerHTML = '<div class="vc-empty" style="padding:60px 0;text-align:center;color:var(--text3);font-size:13px">자동갱신 후 Greek 흐름이 여기에 표시됩니다<br><span style="font-size:11px;opacity:.6">1분 주기로 데이터 누적</span></div>';
     return;
   }
 
-  // canvas 항상 재생성 (destroy 후 오염 방지)
-  if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
-  inner.innerHTML = '<canvas id="vc-chart-date"></canvas>';
+  // canvas 재생성 (destroy 후 오염 방지)
+  if (isDateTab) { if (vcChartInstDate){vcChartInstDate.destroy();vcChartInstDate=null;} }
+  else            { if (vcChartInst){vcChartInst.destroy();vcChartInst=null;} }
+  inner.innerHTML = '<canvas id="vc-chart' + vsfx + '"></canvas>';
 
   const baseW = wrap.clientWidth || 600;
   inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
@@ -1513,7 +1518,7 @@ function renderVCChart() {
     }
   };
 
-  vcChartInst = new Chart(document.getElementById('vc-chart' + vsfx), {
+  const _newVcInst = new Chart(document.getElementById('vc-chart' + vsfx), {
     type: 'line',
     data: {
       labels: timeLabels,
@@ -1621,7 +1626,7 @@ function renderVCChart() {
       // scroll wrap 위에 y축 영역을 매 프레임 다시 그려 항상 보이게 함
       id: 'vcStickyY',
       afterDraw(chart) {
-        const wrap = document.getElementById('vc-scroll-wrap-date');
+        const wrap = document.getElementById('vc-scroll-wrap' + vsfx);
         if (!wrap) return;
         const yScale = chart.scales['y'];
         const yVixScale = chart.scales['yVix'];
@@ -1681,11 +1686,17 @@ function renderVCChart() {
     }]
   });
 
-  // 스크롤 시 y축 재드로우 (sticky 효과)
-  const vcWrap = document.getElementById('vc-scroll-wrap' + (typeof vsfx !== 'undefined' ? vsfx : ''));
+  // 인스턴스 저장 & 스크롤 핸들러
+  if (isDateTab) vcChartInstDate = _newVcInst;
+  else            vcChartInst    = _newVcInst;
+
+  const vcWrap = document.getElementById('vc-scroll-wrap' + vsfx);
   if (vcWrap) {
     vcWrap._scrollHandler && vcWrap.removeEventListener('scroll', vcWrap._scrollHandler);
-    vcWrap._scrollHandler = () => { if (vcChartInst) vcChartInst.draw(); };
+    vcWrap._scrollHandler = () => {
+      const ci = isDateTab ? vcChartInstDate : vcChartInst;
+      if (ci) ci.draw();
+    };
     vcWrap.addEventListener('scroll', vcWrap._scrollHandler, { passive: true });
   }
 }
@@ -2282,7 +2293,7 @@ function render(d){
       </div>
       <div class="vc-scroll-wrap" id="vc-scroll-wrap-date">
         <div class="vc-chart-inner" id="vc-chart-inner-date">
-          <canvas id="vc-chart"></canvas>
+          <canvas id="vc-chart-date"></canvas>
         </div>
       </div>
     </div>
