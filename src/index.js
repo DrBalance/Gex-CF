@@ -943,7 +943,14 @@ async function handleBollinger(url, env) {
   const grade  = url.searchParams.get('grade') || null;  // A/B/C
 
   try {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    // 날짜 미지정 시 가장 최근 수집일 사용
+    let targetDate = date;
+    if (!targetDate) {
+      const latestRow = await env.DB.prepare(
+        `SELECT date FROM bollinger ORDER BY date DESC LIMIT 1`
+      ).first();
+      targetDate = latestRow ? latestRow.date : new Date().toISOString().split('T')[0];
+    }
 
     let whereClauses = ['b.date = ?'];
     let params_list  = [targetDate];
@@ -1018,7 +1025,14 @@ async function handleScreener(url, env) {
   const type = url.searchParams.get('type') || 'all';
 
   try {
-    const targetDate = date || new Date().toISOString().split('T')[0];
+    // 날짜 미지정 시 가장 최근 수집일 사용
+    let targetDate = date;
+    if (!targetDate) {
+      const latestRow = await env.DB.prepare(
+        `SELECT date FROM options_flow ORDER BY date DESC LIMIT 1`
+      ).first();
+      targetDate = latestRow ? latestRow.date : new Date().toISOString().split('T')[0];
+    }
 
     const result = await env.DB.prepare(`
       SELECT
