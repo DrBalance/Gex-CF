@@ -671,7 +671,7 @@ async function handleGex0DTE(url, env) {
     }
     // KV에 없으면 즉석 계산 (Cron 아직 미실행 상태)
     const data = await compute0DTE(env, symbol);
-    await env.CACHE.put(`gex0dte:${symbol}`, JSON.stringify(data), { expirationTtl: 600 });
+    await env.CACHE.put(`gex0dte:${symbol}`, JSON.stringify(data), { expirationTtl: 700 });
     return json({ ...data, source: 'on_demand_computed' });
   } catch (err) {
     return json({ error: err.message, symbol }, 500);
@@ -1105,7 +1105,7 @@ export default {
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
-        await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
+        await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 700 });
         console.log(`[Cron] ${sym} 0DTE computed`);
       } catch (err) {
         console.error(`[Cron] ${sym} failed: ${err.message}`);
