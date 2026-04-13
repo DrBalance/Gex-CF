@@ -328,7 +328,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
         <span>🟢 Call 쏠림 (z>2)</span>
         <span>🔴 Put 쏠림 (z<-2)</span>
         <span>🟡 중립</span>
-        <span style="margin-left:auto">IV Skew: 양수=Call skew / 음수=Put skew</span>
+        <span style="margin-left:auto">IV Skew: <span style="color:var(--green)">█ Call skew (양수)</span> · <span style="color:var(--red)">█ Put skew (음수)</span> · 중앙선=0</span>
       </div>
 
       <!-- 결과 영역 -->
@@ -595,7 +595,7 @@ async function loadScreener() {
               <th style="text-align:right;padding:4px 8px">Put OI</th>
               <th style="text-align:right;padding:4px 8px">PCR</th>
               <th style="text-align:right;padding:4px 8px">Z-Score</th>
-              <th style="text-align:right;padding:4px 8px">IV Skew</th>
+              <th style="text-align:center;padding:4px 8px;min-width:120px">IV Skew</th>
               <th style="text-align:right;padding:4px 8px">신호</th>
             </tr>
           </thead>
@@ -633,8 +633,8 @@ async function loadScreener() {
           <td style="padding:5px 8px;text-align:right;color:${zColor};font-weight:600">
             ${zscore > 0 ? '+' : ''}${zscore.toFixed(1)}
           </td>
-          <td style="padding:5px 8px;text-align:right;color:${skewColor}">
-            ${skew > 0 ? '+' : ''}${(skew*100).toFixed(1)}%
+          <td style="padding:4px 8px;vertical-align:middle">
+            ${renderSkewBar(skew)}
           </td>
           <td style="padding:5px 8px;text-align:right">${signal}</td>
         </tr>`;
@@ -651,6 +651,49 @@ async function loadScreener() {
       <div style="text-align:center;padding:40px;color:var(--red)">
         <div style="font-size:20px;margin-bottom:8px">⚠️</div>
         <div>${err.message}</div>
+      </div>`;
+  }
+}
+
+function renderSkewBar(skew) {
+  // skew 범위: 보통 -0.5 ~ +0.5 (IV 단위)
+  // 바 최대 너비 기준: ±0.3을 100%로 정규화
+  const MAX   = 0.30;
+  const pct   = Math.min(Math.abs(skew) / MAX * 100, 100);
+  const label = (skew > 0 ? '+' : '') + (skew * 100).toFixed(1) + '%';
+
+  if (skew > 0.01) {
+    // Call Skew — 중앙에서 오른쪽으로 초록 바
+    return `
+      <div style="display:flex;align-items:center;gap:4px;font-size:11px">
+        <div style="width:50%;display:flex;justify-content:flex-end">
+          <div style="width:2px;height:12px;background:var(--border)"></div>
+        </div>
+        <div style="width:50%;display:flex;align-items:center;gap:3px">
+          <div style="width:${pct/2}%;min-width:2px;height:8px;
+               background:var(--green);border-radius:0 2px 2px 0;opacity:.85"></div>
+          <span style="color:var(--green);white-space:nowrap;font-size:10px">${label}</span>
+        </div>
+      </div>`;
+  } else if (skew < -0.01) {
+    // Put Skew — 중앙에서 왼쪽으로 빨간 바
+    return `
+      <div style="display:flex;align-items:center;gap:4px;font-size:11px">
+        <div style="width:50%;display:flex;justify-content:flex-end;align-items:center;gap:3px">
+          <span style="color:var(--red);white-space:nowrap;font-size:10px">${label}</span>
+          <div style="width:${pct/2}%;min-width:2px;height:8px;
+               background:var(--red);border-radius:2px 0 0 2px;opacity:.85"></div>
+        </div>
+        <div style="width:50%">
+          <div style="width:2px;height:12px;background:var(--border)"></div>
+        </div>
+      </div>`;
+  } else {
+    // 중립
+    return `
+      <div style="display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text3)">
+        <div style="width:2px;height:12px;background:var(--border);margin-right:4px"></div>
+        <span>0</span>
       </div>`;
   }
 }
