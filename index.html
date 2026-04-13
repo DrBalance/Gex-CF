@@ -268,9 +268,6 @@ tr.flip td{background:rgba(240,136,62,.06)}
   </select>
   <select class="exp-select" id="exp-select"><option value="">로드 중...</option></select>
   <button class="load-btn" id="load-btn" onclick="loadData()">⬇ 데이터 로드</button>
-  <button class="auto-btn" id="auto-btn" onclick="toggleAuto()">
-    <div class="dot"></div><span id="auto-label">자동갱신 OFF</span>
-  </button>
   <div class="ctrl-spacer"></div>
   <div class="data-time" id="data-time"></div>
 </div>
@@ -361,7 +358,6 @@ const PROXY = 'https://api.drbalance.xyz';
 let chartInst = null, chartInstDate = null, vcChartInst = null, vcChartInstDate = null;
 let allOptions = [], spotPrice = 0, vixVal = null, vvixVal = null;
 let currentStrikes = [], currentD = null;
-let autoInterval = null;
 let liveEvents = [];
 let priceHistory = [];
 let vcHistory = []; // {time, vanna, charm, gex, vix, spot}
@@ -413,7 +409,6 @@ function switchTab(tab) {
         s => Math.abs(s.strike - currentD.spotPrice) / currentD.spotPrice < 0.08
       );
       buildChart(chartData, currentD.spotPrice, currentD.flipZone, currentD.putWall, currentD.callWall, '-date');
-      if (vcHistory.length > 0) renderVCChart();
     });
   }
 }
@@ -728,15 +723,44 @@ function fmt(n) {
 
 async function load0DTE() {
   const sym = document.getElementById('sym-select-0dte').value;
+  // 심볼 변경 시 vcHistory 초기화 (다른 심볼 데이터 섞임 방지)
+  if (current0DTESym && current0DTESym !== sym) {
+    vcHistory = [];
+    priceHistory = [];
+  }
   current0DTESym = sym;
   setStatus('updating');
   try {
-    // 병렬: 서버 0DTE + 가격 + VIX
-    const [d0, priceJson, vixJson] = await Promise.all([
+    // 병렬: 서버 0DTE + 가격 + VIX (+ 첫 로드 시 시계열 로드)
+    const fetchList = [
       fetch(`${PROXY}/api/gex0dte?symbol=${sym}`).then(r => r.json()),
       fetch(`${PROXY}/api/price?symbol=${sym}`).then(r => r.json()),
       fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r => r.json()),
-    ]);
+    ];
+    // vcHistory가 비어있으면 KV 시계열 로드
+    const isFirstLoad = vcHistory.length === 0;
+    if (isFirstLoad) {
+      fetchList.push(fetch(`${PROXY}/api/vc_history?symbol=${sym}`).then(r => r.json()));
+    }
+    const results = await Promise.all(fetchList);
+    const [d0, priceJson, vixJson] = results;
+
+    // KV 시계열 로드 처리
+    if (isFirstLoad && results[3] && !results[3].error) {
+      const kvHistory = results[3].history || [];
+      if (kvHistory.length > 0) {
+        // KV 데이터를 vcHistory 형식으로 변환
+        vcHistory = kvHistory.map(p => ({
+          time:  p.time,
+          vanna: p.vanna,
+          charm: p.charm,
+          gex:   p.gex,
+          vix:   p.vix,
+          spot:  p.spot,
+        }));
+        console.log(`[load0DTE] KV 시계열 로드: ${vcHistory.length}포인트`);
+      }
+    }
 
     if (d0.error) throw new Error(d0.error);
 
@@ -987,13 +1011,24 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
     tbody.appendChild(tr);
   });
 
-  // 실시간 판단 이벤트
-  const ctx0 = { marketState, priceLabel: `[${stateLabel}] $${spotDisplay}`, preMarketPct, prevClose, vix: vixVal };
-  const liveEvts = buildLiveJudgment(newSpot || spotPrice, vc, currentD, ctx0, timeStr);
-  liveEvts.forEach(ev => { liveEvents.unshift({ time: timeStr, cls: ev.cls, msg: ev.msg }); });
-  if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
+  // 실시간 판단 이벤트 — 프리마켓~장 마감(EST 16:00)까지만 업데이트
+  const _nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const _estH = _nowEST.getHours() + _nowEST.getMinutes() / 60;
+  const _isMarketHours = _estH >= 4 && _estH < 16; // 프리마켓 04:00 ~ 장 마감 16:00
+  if (_isMarketHours) {
+    const ctx0 = { marketState, priceLabel: `[${stateLabel}] $${spotDisplay}`, preMarketPct, prevClose, vix: vixVal };
+    const liveEvts = buildLiveJudgment(newSpot || spotPrice, vc, currentD, ctx0, timeStr);
+    liveEvts.forEach(ev => { liveEvents.unshift({ time: timeStr, cls: ev.cls, msg: ev.msg }); });
+    if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
+  }
   const liveEl = document.getElementById('judgment-live-content-0dte');
-  if (liveEl) liveEl.innerHTML = liveEvents.map(e => `<div class="live-event ${e.cls}"><span class="le-time">${e.time}</span><span class="le-msg">${e.msg}</span></div>`).join('') || `<div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">감지 중...</span></div>`;
+  if (liveEl) {
+    if (!_isMarketHours && liveEvents.length === 0) {
+      liveEl.innerHTML = `<div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">장 마감 — 다음 거래일 프리마켓부터 업데이트됩니다</span></div>`;
+    } else {
+      liveEl.innerHTML = liveEvents.map(e => `<div class="live-event ${e.cls}"><span class="le-time">${e.time}</span><span class="le-msg">${e.msg}</span></div>`).join('') || `<div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">감지 중...</span></div>`;
+    }
+  }
 
   // Greek 힘의 균형
   const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
@@ -1890,129 +1925,8 @@ function renderJudgmentPanel(fixedItems, liveEvts, timeStr) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 자동갱신
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function toggleAuto() {
-  if (autoInterval) {
-    clearInterval(autoInterval);
-    autoInterval = null;
-    document.getElementById('auto-btn').className = 'auto-btn';
-    document.getElementById('auto-label').textContent = '자동갱신 OFF';
-  } else {
-    if (!currentD) { alert('먼저 데이터를 로드해주세요'); return; }
-    document.getElementById('auto-btn').className = 'auto-btn on';
-    document.getElementById('auto-label').textContent = '자동갱신 ON';
-    autoRefresh();
-    autoInterval = setInterval(autoRefresh, 60000);
-  }
-}
 
-async function autoRefresh() {
-  if (!currentD) return;
-  try {
-    setStatus('updating');
 
-    // 캐시(vcHistory)가 있으면 API 로딩 전에 즉시 렌더
-    if (vcHistory.length > 0) renderVCChart();
-
-    const sym = document.getElementById('sym-select').value.replace('_','');
-
-    // Greeks는 서버에서 계산 (모든 유저 동일값 보장)
-    const [priceJson, vixJson, greeksJson] = await Promise.all([
-      fetch(`${PROXY}/api/price?symbol=${sym==='SPX'?'SPY':sym}`).then(r=>r.json()),
-      fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json()),
-      fetch(`${PROXY}/api/greeks?symbol=${sym==='SPX'?'SPY':sym}&exp=${currentD.exp}`).then(r=>r.json()),
-    ]);
-
-    const newSpot = priceJson.price;
-    const marketState = priceJson.marketState;
-    const priceLabel = priceJson.priceLabel;
-    const prevClose = priceJson.prevClose;
-    const preMarketPct = priceJson.preMarketChangePercent;
-    vixVal = vixJson.VIX?.price;
-    vvixVal = vixJson.VVIX?.price;
-
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit', timeZone:'Asia/Seoul'});
-
-    priceHistory.push({ time:timeStr, price:newSpot, marketState, vix:vixVal, vvix:vvixVal, ts:now.getTime() });
-    if (priceHistory.length > 60) priceHistory.shift();
-
-    // Vanna/Charm: 서버 계산값 우선, 실패 시 클라이언트 폴백
-    let vc;
-    if (greeksJson && !greeksJson.error) {
-      vc = { totalVanna: greeksJson.vanna, totalCharm: greeksJson.charm };
-      // 서버에서 계산된 GEX/FlipZone도 업데이트
-      if (greeksJson.localGEX !== undefined) currentD.localGEX = greeksJson.localGEX * 1e6;
-      if (greeksJson.flipZone !== undefined) currentD.flipZone = greeksJson.flipZone;
-    } else {
-      // 폴백: 클라이언트 계산
-      vc = calculateVannaCharm(currentD.strikes, newSpot, currentD.exp);
-    }
-
-    // VannaCharm 히스토리 누적
-    vcHistory.push({
-      time: timeStr,
-      vanna: parseFloat(vc.totalVanna.toFixed(2)),
-      charm: parseFloat(vc.totalCharm.toFixed(2)),
-      gex: parseFloat((currentD.localGEX/1e6).toFixed(2)),
-      vix: vixVal,
-      spot: newSpot
-    });
-    if (vcHistory.length > 120) vcHistory.shift();
-
-    // ── VVIX 급등 감지 (VIX 본격 상승 선행 신호) ──
-    const VVIX_SPIKE_THRESHOLD = 3.0;
-    const prevVvix = priceHistory.length >= 2 ? priceHistory[priceHistory.length - 2]?.vvix : null;
-    if (vvixVal != null && prevVvix != null) {
-      const vvixDelta = vvixVal - prevVvix;
-      if (vvixDelta >= VVIX_SPIKE_THRESHOLD) {
-        liveEvents.unshift({
-          time: timeStr,
-          cls: 'le-danger',
-          msg: `⚡ VVIX 급등 +${vvixDelta.toFixed(1)}pt (${prevVvix.toFixed(1)}→${vvixVal.toFixed(1)}) — VIX 본격 상승 약 1시간 선행 신호`
-        });
-        if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
-      }
-    }
-
-    // UI 업데이트
-    const stateLabel = { PRE:'프리마켓', REGULAR:'정규장', POST:'애프터', CLOSED:'마감' }[marketState] || marketState;
-    document.getElementById('data-time').textContent = `${stateLabel} ${timeStr}`;
-    updateVIXMetrics();
-    updateSpotMetric(newSpot, marketState, preMarketPct, prevClose);
-
-    // Vanna/Charm 메트릭 업데이트
-    const mVanna = document.getElementById('metric-vanna');
-    const mCharm = document.getElementById('metric-charm');
-    if (mVanna) {
-      mVanna.querySelector('.val').textContent = vc.totalVanna.toFixed(1)+'M';
-      mVanna.style.borderColor = '#bc8cff55';
-      mVanna.querySelector('.val').style.color = '#bc8cff';
-    }
-    if (mCharm) {
-      mCharm.querySelector('.val').textContent = vc.totalCharm.toFixed(1)+'M';
-      mCharm.style.borderColor = '#58a6ff55';
-      mCharm.querySelector('.val').style.color = '#58a6ff';
-      const vcR = Math.abs(vc.totalVanna) > 0 ? (Math.abs(vc.totalCharm)/Math.abs(vc.totalVanna)).toFixed(2) : '—';
-      mCharm.querySelector('.lbl').textContent = `● Charm · VC ${vcR}`;
-    }
-
-    // 힘의 균형 업데이트
-    const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
-    renderForceSidebar(force);
-
-    // 차트 업데이트
-    renderVCChart();
-
-    // 실시간 상황판단 업데이트
-    const ctx = { marketState, priceLabel, preMarketPct, prevClose, vix: vixVal };
-    const liveEvts = buildLiveJudgment(newSpot, vc, currentD, ctx, timeStr);
-    const fixedItems = buildFixedJudgment(currentD, vc);
-    renderJudgmentPanel(fixedItems, liveEvts, timeStr);
-
-    prevSpot = newSpot;
-    setStatus('live');
-  } catch(e) { console.error(e); setStatus('error'); }
-}
 
 function updateSpotMetric(newSpot, marketState, preMarketPct, prevClose) {
   const m = document.getElementById('metric-spot'); if (!m) return;
@@ -2125,12 +2039,6 @@ async function loadData() {
     currentD=d;
     render(d);
 
-    if (!autoInterval) {
-      document.getElementById('auto-btn').className = 'auto-btn on';
-      document.getElementById('auto-label').textContent = '자동갱신 ON';
-      autoRefresh();
-      autoInterval = setInterval(autoRefresh, 60000);
-    }
     setStatus('live');
   } catch(e){
     console.error(e); setStatus('error');
@@ -2208,25 +2116,7 @@ function render(d){
       <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${vc.totalCharm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm · VC ${Math.abs(vc.totalVanna)>0?(Math.abs(vc.totalCharm)/Math.abs(vc.totalVanna)).toFixed(2):'—'}</div></div>
     </div>
 
-    <!-- 통합 상황판단 -->
-    <div class="judgment-panel" style="margin-top:20px">
-      <div class="judgment-fixed">
-        <div class="judgment-fixed-title">시장 구조 분석 — 오늘의 핵심 구조</div>
-        <div id="judgment-fixed-content"></div>
-      </div>
-      <div class="judgment-live">
-        <div class="judgment-live-header">
-          <div class="judgment-live-title"><div class="live-dot"></div>실시간 상황 판단</div>
-          <div class="judgment-live-nav">
-            <div class="jl-nav-btn" onclick="jlScroll(-1)" title="위로">▲</div>
-            <div class="jl-nav-btn" onclick="jlScroll(1)" title="아래로">▼</div>
-          </div>
-        </div>
-        <div class="judgment-live-scroll" id="judgment-live-scroll">
-          <div id="judgment-live-content"><div class="live-event le-info"><span class="le-time">—</span><span class="le-msg">자동갱신 ON 후 활성화됩니다</span></div></div>
-        </div>
-      </div>
-    </div>
+
 
     <div class="hedge-section">
       <div class="hedge-title">딜러 헷지 부담 집중 스트라이크 (γ × OI 기준)</div>
@@ -2276,29 +2166,7 @@ function render(d){
         <div class="gmc-desc" id="gmc-flip-desc">—</div>
       </div>
     </div>
-    <!-- VannaCharm 차트 (전체 너비) -->
-    <div class="vc-chart-area" style="width:100%;border-right:none">
-      <div class="vc-chart-header">
-        <div class="vc-chart-title">◈ Greek 실시간 흐름 (CBOE 기반)</div>
-        <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-          <span style="font-size:12px;color:#bc8cff;font-weight:600">● Vanna</span>
-          <span style="font-size:12px;color:#58a6ff;font-weight:600">● Charm</span>
-          <span style="font-size:12px;color:#d29922;font-weight:600">— VIX</span>
-          <span style="font-size:12px;color:#3fb950;font-weight:600">▪ GEX 배경</span>
-        </div>
-      </div>
-      <div class="vc-zoom-row">
-        <span class="vc-zoom-label">확대</span>
-        <input type="range" class="vc-zoom-slider" min="1" max="6" step="0.5" value="1" oninput="updateVCZoom(this.value)">
-        <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
-        <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
-      </div>
-      <div class="vc-scroll-wrap" id="vc-scroll-wrap-date">
-        <div class="vc-chart-inner" id="vc-chart-inner-date">
-          <canvas id="vc-chart-date"></canvas>
-        </div>
-      </div>
-    </div>
+
   </div>
 
   <div class="card">
@@ -2329,15 +2197,7 @@ function render(d){
   });
 
   // 고정 섹션 초기 렌더
-  const fixedEl = document.getElementById('judgment-fixed-content');
-  if (fixedEl) {
-    fixedEl.innerHTML = fixedItems.map(item=>`
-      <div class="judgment-item ${item.cls}">
-        <span class="ji-icon">${item.icon}</span>
-        <span class="ji-text">${item.text}</span>
-      </div>`).join('');
-    fixedEl.dataset.rendered = '1';
-  }
+
 
   // 차트 — DOM 렌더링 완료 후 실행
   requestAnimationFrame(() => {
