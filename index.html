@@ -1572,79 +1572,68 @@ function renderVCChart() {
     return;
   }
 
-  // 표시할 슬라이스: 데이터가 vcRangePoints보다 적으면 전체 표시
-  const slice = vcHistory.length <= vcRangePoints
-    ? vcHistory
-    : vcHistory.slice(-vcRangePoints);
+  // ── 전체 고정 시간축: KST 17:00(EDT)/18:00(EST) ~ +16시간 (5분 간격, 192포인트) ──
+  const PRE_START_KST = isEDT() ? 17 : 18; // 프리마켓 시작 KST 시
+  const TOTAL_SLOTS = 192; // 16시간 × 12포인트/시간
+  const PX_PER_POINT = 14; // 포인트당 픽셀
 
-  // ── 고정 시간축 생성 (5분 간격, vcRangePoints 개수만큼) ──
-  // 마지막 포인트 시간 기준으로 역산해서 전체 범위 생성
-  function makeTimeAxis(endTimeStr, totalPoints) {
-    // endTimeStr: "HH:MM" KST
-    const [h, m] = endTimeStr.split(':').map(Number);
-    const endMin = h * 60 + m;
-    const axis = [];
-    for (let i = totalPoints - 1; i >= 0; i--) {
-      const t = endMin - i * 5;
-      const hh = Math.floor(((t % 1440) + 1440) % 1440 / 60);
-      const mm = ((t % 60) + 60) % 60;
-      axis.push(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`);
-    }
-    return axis;
+  const fullAxis = [];
+  for (let i = 0; i < TOTAL_SLOTS; i++) {
+    const totalMin = PRE_START_KST * 60 + i * 5;
+    const hh = Math.floor((totalMin % 1440) / 60);
+    const mm = totalMin % 60;
+    fullAxis.push(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`);
   }
 
-  const totalPoints = Math.max(vcRangePoints, slice.length);
-  const lastTime = slice.length > 0 ? slice[slice.length - 1].time : null;
-  const timeAxis = lastTime ? makeTimeAxis(lastTime, totalPoints) : slice.map(h => h.time);
-
-  // 시간축 → 데이터 매핑 (없는 슬롯은 null)
+  // 데이터 매핑 (vcHistory 전체 기준)
   const dataMap = {};
-  slice.forEach(h => { dataMap[h.time] = h; });
+  vcHistory.forEach(h => { dataMap[h.time] = h; });
 
-  const labels = timeAxis;
-  const vannaD = timeAxis.map(t => dataMap[t]?.vanna ?? null);
-  const charmD = timeAxis.map(t => dataMap[t]?.charm ?? null);
-  const vvRaw  = timeAxis.map(t => dataMap[t]?.vv    ?? null);
-  const obvD   = timeAxis.map(t => dataMap[t]?.obv != null ? dataMap[t].obv / 1e6 : null);
+  const labels = fullAxis;
+  const vannaD = fullAxis.map(t => dataMap[t]?.vanna ?? null);
+  const charmD = fullAxis.map(t => dataMap[t]?.charm ?? null);
+  const obvD   = fullAxis.map(t => dataMap[t]?.obv != null ? dataMap[t].obv / 1e6 : null);
 
-  // VV 누적 (Cumulative Tick 스타일): 세션 시작 시 0 리셋
-  // 개장(KST 22:30 EDT / 23:30 EST) 시점을 기준으로 리셋
+  // VV 누적 (벡터 누적): 개장 시 리셋
   const openKST = isEDT() ? '22:30' : '23:30';
   let vvCum = 0;
-  const vvD = [];
-  timeAxis.forEach(t => {
-    if (t === openKST) vvCum = 0; // 세션 리셋
+  const vvD = fullAxis.map(t => {
+    if (t === openKST) vvCum = 0;
     const v = dataMap[t]?.vv;
     if (v != null) vvCum += v;
-    vvD.push(dataMap[t] != null ? vvCum : null);
+    return dataMap[t] != null ? vvCum : null;
   });
 
-  // EMA5 계산 (cumulative tick cloud 색상용)
-  function calcEMA(arr, period) {
-    const k = 2 / (period + 1);
-    const result = [];
-    let ema = null;
-    arr.forEach(v => {
-      if (v == null) { result.push(null); return; }
-      ema = ema == null ? v : v * k + ema * (1 - k);
-      result.push(ema);
-    });
-    return result;
+  // 현재 KST 시간 → 정시 기준 뷰포트 계산
+  const nowKST = new Date();
+  const nowKSTStr = nowKST.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Seoul' });
+  const nowH = parseInt(nowKSTStr.split(':')[0]);
+  const nowM = parseInt(nowKSTStr.split(':')[1]);
+
+  // 뷰포트 시간 범위 (시간 단위)
+  const viewHours = vcRangePoints / 12;
+  const halfHours = Math.floor(viewHours / 2);
+
+  // 뷰포트 시작 정시 계산
+  // 현재 기준 -halfHours가 프리마켓 시작보다 이전이면 → 시작점 고정
+  let startH;
+  const candidateStart = nowH - halfHours + (nowM >= 30 ? 1 : 0);
+  if (candidateStart < PRE_START_KST) {
+    startH = PRE_START_KST; // 17:00(EDT) or 18:00(EST) 고정
+  } else {
+    startH = candidateStart;
   }
-  const vvEMA5 = calcEMA(vvD, 5);
-  // 색상 배열: vvCum > EMA5 → 초록, 아니면 빨강
-  const vvColors = vvD.map((v, i) => {
-    if (v == null) return 'transparent';
-    return v > (vvEMA5[i] ?? 0)
-      ? 'rgba(63,185,80,0.75)'
-      : 'rgba(248,81,73,0.75)';
-  });
 
-  // 포인트당 고정 픽셀 너비 (5분봉 1개 = 12px, 최소 화면 너비 이상)
-  const PX_PER_POINT = 12;
+  const startStr = `${String(((startH % 24) + 24) % 24).padStart(2,'0')}:00`;
+  let startIdx = fullAxis.findIndex(t => t === startStr);
+  if (startIdx < 0) startIdx = 0;
+
+  const viewW = vcRangePoints * PX_PER_POINT;
+  const scrollTarget = Math.max(0, startIdx * PX_PER_POINT);
+
+  // 포인트당 고정 픽셀 너비
   const wrap = document.getElementById('vc-multipane-wrap');
-  const wrapMinW = wrap ? wrap.clientWidth : 600;
-  const chartW = Math.max(wrapMinW, totalPoints * PX_PER_POINT);
+  const chartW = TOTAL_SLOTS * PX_PER_POINT;
   // 각 페인 내부 div 너비 고정
   ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
     const el = document.getElementById(id);
@@ -1750,51 +1739,34 @@ function renderVCChart() {
       opts.scales.y.grid = { color: (ctx) => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(48,54,61,.4)' };
       opts.scales.y.ticks.callback = v => v?.toFixed(3);
 
-      // EMA5 라인 데이터셋 추가
       vcPaneVV = new Chart(vvEl, {
-        type: 'bar', data: {
+        type: 'line', data: {
           labels,
-          datasets: [
-            {
-              // 누적 VV — bar 컬럼 (EMA5 색상)
-              label: 'VV 누적',
-              data: vvD,
-              backgroundColor: vvColors,
-              borderColor: 'transparent',
-              borderWidth: 0,
-              borderRadius: 1,
-              barPercentage: 0.9,
-              categoryPercentage: 1.0,
+          datasets: [{
+            label: 'VV 누적',
+            data: vvD,
+            borderColor: ctx => {
+              const v = ctx.parsed?.y;
+              if (v == null) return '#d29922';
+              return v >= 0 ? 'rgba(248,81,73,0.9)' : 'rgba(63,185,80,0.9)';
             },
-            {
-              // EMA5 오버레이 라인
-              label: 'EMA5',
-              data: vvEMA5,
-              type: 'line',
-              borderColor: 'rgba(255,255,255,0.5)',
-              backgroundColor: 'transparent',
-              borderWidth: 1.5,
-              pointRadius: 0,
-              tension: 0.3,
-              spanGaps: true,
-            }
-          ]
-        },
-        options: {
-          ...opts,
-          plugins: {
-            ...opts.plugins,
-            tooltip: {
-              ...opts.plugins.tooltip,
-              callbacks: {
-                label: item => {
-                  if (item.dataset.label === 'EMA5') return `EMA5: ${item.parsed.y?.toFixed(4) ?? '—'}`;
-                  return `VV 누적: ${item.parsed.y?.toFixed(4) ?? '—'} pt`;
-                }
+            segment: {
+              borderColor: ctx => {
+                const v = ctx.p1?.parsed?.y;
+                if (v == null) return '#d29922';
+                return v >= 0 ? 'rgba(248,81,73,0.9)' : 'rgba(63,185,80,0.9)';
               }
-            }
-          }
+            },
+            backgroundColor: 'transparent',
+            fill: false,
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            tension: 0,
+            spanGaps: true,
+          }]
         },
+        options: opts,
         plugins: [sessionPlugin(labels)]
       });
     }
@@ -1825,10 +1797,14 @@ function renderVCChart() {
   }
 
   // 신호등 업데이트
-  updateVCSignalBar(slice);
+  updateVCSignalBar(vcHistory.slice(-5));
 
-  // 최신 데이터(오른쪽 끝)로 스크롤
-  if (wrap) requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; });
+  // 현재 시간 기준 뷰포트로 스크롤
+  if (wrap) {
+    requestAnimationFrame(() => {
+      wrap.scrollLeft = scrollTarget;
+    });
+  }
 }
 
 function updateVCSignalBar(slice) {
