@@ -1163,6 +1163,85 @@ async function handleScreener(url, env) {
   }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// /api/breadth — SPY 1분봉 OBV 계산 (수급 누적 지수)
+// Market Data App candles → OBV 누적 + slope
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function handleBreadth(url, env) {
+  const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+  const todayStr = nowEST.toLocaleDateString('en-CA');
+
+  // 프리마켓~애프터 (04:00~20:00 EST)
+  if (estHour < 4 || estHour >= 20) {
+    return json({ symbol, obv: 0, obvSlope: 0, candles: [], date: todayStr, note: 'market_closed' });
+  }
+
+  const cacheKey = `breadth:${symbol}:${todayStr}`;
+  const ttl = 60; // 1분 캐시
+
+  try {
+    const data = await withCache(env, cacheKey, ttl, async () => {
+      // Market Data App 1분봉 (당일 전체)
+      const from = Math.floor(new Date(`${todayStr}T04:00:00-05:00`).getTime() / 1000);
+      const to   = Math.floor(Date.now() / 1000);
+
+      const r = await fetch(
+        `https://api.marketdata.app/v1/stocks/candles/1/${symbol}/?from=${from}&to=${to}&extended=true`,
+        {
+          headers: {
+            'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`,
+            'Accept': 'application/json',
+          },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      if (!r.ok) throw new Error(`MarketData candles ${r.status}`);
+      const j = await r.json();
+      if (j.s !== 'ok' || !Array.isArray(j.c)) throw new Error('EMPTY');
+
+      const { t: times, o: opens, c: closes, v: volumes } = j;
+      const count = times.length;
+
+      // OBV 누적 계산
+      let obv = 0;
+      const candles = [];
+      for (let i = 0; i < count; i++) {
+        const vol = volumes[i] || 0;
+        if (i === 0) {
+          obv += vol;
+        } else {
+          if (closes[i] > closes[i - 1])      obv += vol;
+          else if (closes[i] < closes[i - 1]) obv -= vol;
+          // 같으면 변화 없음
+        }
+        const dt = new Date(times[i] * 1000);
+        const kstDt = new Date(dt.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+        const timeStr = `${String(kstDt.getHours()).padStart(2,'0')}:${String(kstDt.getMinutes()).padStart(2,'0')}`;
+        candles.push({ time: timeStr, obv, close: closes[i] });
+      }
+
+      // OBV slope: 현재 - 15분 전 OBV
+      const slopeWindow = 15;
+      const recentObv   = obv;
+      const pastObv     = count >= slopeWindow ? candles[count - slopeWindow].obv : candles[0]?.obv ?? 0;
+      const obvSlope    = recentObv - pastObv; // 양수=수급유입, 음수=수급이탈
+
+      return {
+        symbol, obv: recentObv, obvSlope,
+        candles: candles.slice(-96), // 최근 96분만 전송
+        date: todayStr,
+        source: 'marketdata',
+        computedAt: new Date().toISOString(),
+      };
+    });
+    return json(data);
+  } catch (err) {
+    return json({ error: err.message, symbol }, 500);
+  }
+}
+
 // ── 메인 라우터 ──
 export default {
   async fetch(request, env) {
@@ -1175,6 +1254,7 @@ export default {
     if (url.pathname === '/api/options')    return handleOptions(url, env);
     if (url.pathname === '/api/price')      return handlePrice(url, env);
     if (url.pathname === '/api/vix')        return handleVix(url, env);
+    if (url.pathname === '/api/breadth')    return handleBreadth(url, env);
     if (url.pathname === '/api/vannacharm') return handleVannaCharm(url, env);
     if (url.pathname === '/api/greeks')     return handleGreeks(url, env);
     if (url.pathname === '/api/gex0dte')    return handleGex0DTE(url, env);
@@ -1196,52 +1276,132 @@ export default {
   async scheduled(event, env, ctx) {
     const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
     const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
-    const todayEST = nowEST.toLocaleDateString('en-CA'); // "2026-04-14"
+    const todayEST = nowEST.toLocaleDateString('en-CA');
 
-    // 장 마감(16:00)이면 당일 시계열 초기화 예약 (TTL로 자동 만료되므로 별도 처리 불필요)
     const symbols = ['SPY', 'QQQ', 'IWM'];
+
+    // ── VIX KV 히스토리 (VV 계산용) ──
+    // vix_history:YYYY-MM-DD → [{time, price}] 배열
+    const vixHistKey = `vix_cron_history:${todayEST}`;
+    let vixCronHistory = [];
+    try {
+      const stored = await env.CACHE.get(vixHistKey);
+      if (stored) vixCronHistory = JSON.parse(stored);
+      // 날짜 바뀌면 초기화
+      if (vixCronHistory.length > 0 && vixCronHistory[0]?._date !== todayEST) vixCronHistory = [];
+    } catch (_) {}
+
+    // VIX 현재가 조회
+    let vixNow = null;
+    try {
+      const mdR = await fetch(
+        `https://api.marketdata.app/v1/indices/quotes/VIX/`,
+        {
+          headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(6000),
+        }
+      );
+      if (mdR.ok) {
+        const mdJ = await mdR.json();
+        if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
+          vixNow = mdJ.last[0];
+        }
+      }
+    } catch (e) {
+      console.warn('[Cron] VIX fetch failed:', e.message);
+    }
+
+    // VIX velocity (VV): 현재 - 5분 전 / 5 (pt/min)
+    let vv = null;
+    const nowKST2 = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+    const timeStr = `${String(nowKST2.getHours()).padStart(2,'0')}:${String(nowKST2.getMinutes()).padStart(2,'0')}`;
+    if (vixNow != null) {
+      // 5분 전 포인트 찾기 (최근 2개 포인트 이상이면 계산)
+      if (vixCronHistory.length >= 1) {
+        const prev = vixCronHistory[vixCronHistory.length - 1];
+        vv = parseFloat(((vixNow - prev.price) / 5).toFixed(4));
+      }
+      // 현재 VIX 히스토리에 추가
+      vixCronHistory.push({ time: timeStr, price: vixNow, _date: todayEST });
+      if (vixCronHistory.length > 200) vixCronHistory = vixCronHistory.slice(-200);
+      try {
+        await env.CACHE.put(vixHistKey, JSON.stringify(vixCronHistory), { expirationTtl: 86400 });
+      } catch (_) {}
+    }
+
+    // ── SPY OBV (breadth) 조회 ──
+    let obvNow = null, obvSlope = null;
+    try {
+      const todayStr = todayEST;
+      const from = Math.floor(new Date(`${todayStr}T04:00:00-05:00`).getTime() / 1000);
+      const to   = Math.floor(Date.now() / 1000);
+      const candleR = await fetch(
+        `https://api.marketdata.app/v1/stocks/candles/1/SPY/?from=${from}&to=${to}&extended=true`,
+        {
+          headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(10000),
+        }
+      );
+      if (candleR.ok) {
+        const cj = await candleR.json();
+        if (cj.s === 'ok' && Array.isArray(cj.c) && cj.c.length > 0) {
+          const { c: closes, v: volumes } = cj;
+          let obv = 0;
+          const obvArr = [];
+          for (let i = 0; i < closes.length; i++) {
+            const vol = volumes[i] || 0;
+            if (i === 0) obv += vol;
+            else if (closes[i] > closes[i - 1]) obv += vol;
+            else if (closes[i] < closes[i - 1]) obv -= vol;
+            obvArr.push(obv);
+          }
+          obvNow = obvArr[obvArr.length - 1];
+          const slopeWindow = 15;
+          const pastObv = obvArr.length >= slopeWindow ? obvArr[obvArr.length - slopeWindow] : obvArr[0];
+          obvSlope = obvNow - pastObv;
+        }
+      }
+    } catch (e) {
+      console.warn('[Cron] OBV fetch failed:', e.message);
+    }
+
     for (const sym of symbols) {
       try {
         const data = await compute0DTE(env, sym);
 
-        // 1. gex0dte 현재 스냅샷 저장 (클라이언트 실시간 조회용)
+        // 1. gex0dte 현재 스냅샷 저장
         try {
           await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
         } catch (kvErr) {
           console.warn(`[Cron] KV put skipped for ${sym}: ${kvErr.message}`);
         }
 
-        // 2. Vanna/Charm 시계열 append (프리마켓 04:00 ~ 장 마감 16:30까지)
-        if (estHour >= 4 && estHour < 16.5) {
+        // 2. vc_history 시계열 append (프리마켓 04:00 ~ 장 마감 20:00까지)
+        if (estHour >= 4 && estHour < 20) {
           const histKey = `vc_history:${sym}:${todayEST}`;
-          const timeStr = nowEST.toTimeString().slice(0, 5); // "09:35"
           const newPoint = {
-            time:  timeStr,
-            vanna: data.vanna  != null ? parseFloat(data.vanna.toFixed(2))  : null,
-            charm: data.charm  != null ? parseFloat(data.charm.toFixed(2))  : null,
-            gex:   data.localGEX != null ? parseFloat(data.localGEX.toFixed(2)) : null,
-            vix:   null, // 클라이언트에서 병합
-            spot:  data.spotPrice ?? null,
+            time:      timeStr,
+            vanna:     data.vanna     != null ? parseFloat(data.vanna.toFixed(2))     : null,
+            charm:     data.charm     != null ? parseFloat(data.charm.toFixed(2))     : null,
+            vix:       vixNow         != null ? parseFloat(vixNow.toFixed(2))         : null,
+            vv:        vv             != null ? parseFloat(vv.toFixed(4))             : null,
+            obv:       obvNow         != null ? Math.round(obvNow)                    : null,
+            obvSlope:  obvSlope       != null ? Math.round(obvSlope)                  : null,
+            spot:      data.spotPrice ?? null,
+            _date:     todayEST,
           };
 
           try {
-            // 기존 시계열 로드 후 append
             let history = [];
             const stored = await env.CACHE.get(histKey);
             if (stored) history = JSON.parse(stored);
+            if (history.length > 0 && history[0]?._date !== todayEST) history = [];
 
-            // 장 시작(09:30) 이전 첫 진입이면 초기화
-            if (history.length > 0) {
-              const lastDate = history[0]?._date;
-              if (lastDate && lastDate !== todayEST) history = []; // 날짜 바뀌면 초기화
-            }
-
-            history.push({ ...newPoint, _date: todayEST });
-            // 최대 200포인트 (5분 × 200 = 약 17시간)
+            history.push(newPoint);
             if (history.length > 200) history = history.slice(-200);
 
-            await env.CACHE.put(histKey, JSON.stringify(history), { expirationTtl: 86400 }); // 24시간
-            console.log(`[Cron] ${sym} vc_history appended: ${timeStr} (${history.length}pts)`);
+            await env.CACHE.put(histKey, JSON.stringify(history), { expirationTtl: 86400 });
+            console.log(`[Cron] ${sym} vc_history appended: ${timeStr} vix=${vixNow} vv=${vv} obv=${obvNow} (${history.length}pts)`);
           } catch (kvErr) {
             console.warn(`[Cron] vc_history put skipped for ${sym}: ${kvErr.message}`);
           }
