@@ -1348,18 +1348,22 @@ export default {
     let obvNow = null, obvSlope = null;
     try {
       const todayStr = todayEST;
-      const from = Math.floor(new Date(`${todayStr}T04:00:00-05:00`).getTime() / 1000);
+      // extended=true 대신 from/to 범위로만 요청 (MD App 프리마켓 지원)
+      const from = Math.floor(new Date(`${todayStr}T09:00:00Z`).getTime() / 1000); // UTC 09:00 = EST 04:00
       const to   = Math.floor(Date.now() / 1000);
-      const candleR = await fetch(
-        `https://api.marketdata.app/v1/stocks/candles/1/SPY/?from=${from}&to=${to}&extended=true`,
-        {
-          headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(10000),
-        }
-      );
-      if (candleR.ok) {
-        const cj = await candleR.json();
-        if (cj.s === 'ok' && Array.isArray(cj.c) && cj.c.length > 0) {
+      const candleUrl = `https://api.marketdata.app/v1/stocks/candles/1/SPY/?from=${from}&to=${to}`;
+      const candleR = await fetch(candleUrl, {
+        headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(12000),
+      });
+      const candleText = await candleR.text();
+      if (!candleR.ok) {
+        console.warn(`[Cron] OBV HTTP ${candleR.status}: ${candleText.slice(0,200)}`);
+      } else {
+        const cj = JSON.parse(candleText);
+        if (cj.s !== 'ok') {
+          console.warn(`[Cron] OBV s=${cj.s}: ${cj.errmsg || ''}`);
+        } else if (Array.isArray(cj.c) && cj.c.length > 0) {
           const { c: closes, v: volumes } = cj;
           let obv = 0;
           const obvArr = [];
@@ -1374,6 +1378,9 @@ export default {
           const slopeWindow = 15;
           const pastObv = obvArr.length >= slopeWindow ? obvArr[obvArr.length - slopeWindow] : obvArr[0];
           obvSlope = obvNow - pastObv;
+          console.log(`[Cron] OBV ok: ${closes.length}candles, obv=${obvNow}`);
+        } else {
+          console.warn(`[Cron] OBV empty response`);
         }
       }
     } catch (e) {
@@ -1411,6 +1418,11 @@ export default {
             const stored = await env.CACHE.get(histKey);
             if (stored) history = JSON.parse(stored);
             if (history.length > 0 && history[0]?._date !== todayEST) history = [];
+
+            // 기존 데이터 중복 제거 (같은 time 중 마지막 것만 유지)
+            const seen = new Map();
+            history.forEach(p => seen.set(p.time, p));
+            history = Array.from(seen.values());
 
             // 같은 시간 중복 방지
             if (history.length > 0 && history[history.length - 1].time === timeStr) {
