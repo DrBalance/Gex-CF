@@ -999,7 +999,7 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
         <!-- 페인2: VV -->
         <div style="position:relative">
           <div style="font-size:10px;color:var(--text3);padding:4px 8px">
-            <span style="color:#d29922">● VIX Velocity (pt/min)</span>
+            <span style="color:#d29922">● VIX Velocity 누적 (Tick 스타일)</span>
           </div>
           <div style="position:relative;height:220px">
             <canvas id="vc-pane-vv"></canvas>
@@ -1576,17 +1576,75 @@ function renderVCChart() {
   const slice = vcHistory.length <= vcRangePoints
     ? vcHistory
     : vcHistory.slice(-vcRangePoints);
-  const labels  = slice.map(h => h.time);
-  const vannaD  = slice.map(h => h.vanna);
-  const charmD  = slice.map(h => h.charm);
-  const vvD     = slice.map(h => h.vv   ?? null);
-  const obvD    = slice.map(h => h.obv  != null ? h.obv / 1e6 : null);
+
+  // ── 고정 시간축 생성 (5분 간격, vcRangePoints 개수만큼) ──
+  // 마지막 포인트 시간 기준으로 역산해서 전체 범위 생성
+  function makeTimeAxis(endTimeStr, totalPoints) {
+    // endTimeStr: "HH:MM" KST
+    const [h, m] = endTimeStr.split(':').map(Number);
+    const endMin = h * 60 + m;
+    const axis = [];
+    for (let i = totalPoints - 1; i >= 0; i--) {
+      const t = endMin - i * 5;
+      const hh = Math.floor(((t % 1440) + 1440) % 1440 / 60);
+      const mm = ((t % 60) + 60) % 60;
+      axis.push(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`);
+    }
+    return axis;
+  }
+
+  const totalPoints = Math.max(vcRangePoints, slice.length);
+  const lastTime = slice.length > 0 ? slice[slice.length - 1].time : null;
+  const timeAxis = lastTime ? makeTimeAxis(lastTime, totalPoints) : slice.map(h => h.time);
+
+  // 시간축 → 데이터 매핑 (없는 슬롯은 null)
+  const dataMap = {};
+  slice.forEach(h => { dataMap[h.time] = h; });
+
+  const labels = timeAxis;
+  const vannaD = timeAxis.map(t => dataMap[t]?.vanna ?? null);
+  const charmD = timeAxis.map(t => dataMap[t]?.charm ?? null);
+  const vvRaw  = timeAxis.map(t => dataMap[t]?.vv    ?? null);
+  const obvD   = timeAxis.map(t => dataMap[t]?.obv != null ? dataMap[t].obv / 1e6 : null);
+
+  // VV 누적 (Cumulative Tick 스타일): 세션 시작 시 0 리셋
+  // 개장(KST 22:30 EDT / 23:30 EST) 시점을 기준으로 리셋
+  const openKST = isEDT() ? '22:30' : '23:30';
+  let vvCum = 0;
+  const vvD = [];
+  timeAxis.forEach(t => {
+    if (t === openKST) vvCum = 0; // 세션 리셋
+    const v = dataMap[t]?.vv;
+    if (v != null) vvCum += v;
+    vvD.push(dataMap[t] != null ? vvCum : null);
+  });
+
+  // EMA5 계산 (cumulative tick cloud 색상용)
+  function calcEMA(arr, period) {
+    const k = 2 / (period + 1);
+    const result = [];
+    let ema = null;
+    arr.forEach(v => {
+      if (v == null) { result.push(null); return; }
+      ema = ema == null ? v : v * k + ema * (1 - k);
+      result.push(ema);
+    });
+    return result;
+  }
+  const vvEMA5 = calcEMA(vvD, 5);
+  // 색상 배열: vvCum > EMA5 → 초록, 아니면 빨강
+  const vvColors = vvD.map((v, i) => {
+    if (v == null) return 'transparent';
+    return v > (vvEMA5[i] ?? 0)
+      ? 'rgba(63,185,80,0.75)'
+      : 'rgba(248,81,73,0.75)';
+  });
 
   // 포인트당 고정 픽셀 너비 (5분봉 1개 = 12px, 최소 화면 너비 이상)
   const PX_PER_POINT = 12;
   const wrap = document.getElementById('vc-multipane-wrap');
   const wrapMinW = wrap ? wrap.clientWidth : 600;
-  const chartW = Math.max(wrapMinW, slice.length * PX_PER_POINT);
+  const chartW = Math.max(wrapMinW, totalPoints * PX_PER_POINT);
   // 각 페인 내부 div 너비 고정
   ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
     const el = document.getElementById(id);
@@ -1687,22 +1745,56 @@ function renderVCChart() {
       // Cron 데이터 아직 없음 — 빈 안내
       vvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">VV — Cron 5분 후 적재</div>';
     } else {
-      const opts = commonOpts('#d29922', item => `VV: ${item.parsed.y?.toFixed(4) ?? '—'} pt/min`);
+      const opts = commonOpts('#d29922', item => `VV 누적: ${item.parsed.y?.toFixed(4) ?? '—'} pt`);
       opts.scales.y.ticks.callback = v => v?.toFixed(3);
-      opts.scales.y.grid = { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(48,54,61,.4)' };
+      opts.scales.y.grid = { color: (ctx) => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(48,54,61,.4)' };
+      opts.scales.y.ticks.callback = v => v?.toFixed(3);
+
+      // EMA5 라인 데이터셋 추가
       vcPaneVV = new Chart(vvEl, {
-        type: 'line', data: {
+        type: 'bar', data: {
           labels,
-          datasets: [{
-            label:'VV', data: vvD,
-            borderColor:'#d29922', backgroundColor: ctx => {
-              const v = ctx.parsed?.y;
-              return v >= 0 ? 'rgba(248,81,73,.12)' : 'rgba(63,185,80,.12)';
+          datasets: [
+            {
+              // 누적 VV — bar 컬럼 (EMA5 색상)
+              label: 'VV 누적',
+              data: vvD,
+              backgroundColor: vvColors,
+              borderColor: 'transparent',
+              borderWidth: 0,
+              borderRadius: 1,
+              barPercentage: 0.9,
+              categoryPercentage: 1.0,
             },
-            fill: 'origin', borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.2, spanGaps:true
-          }]
+            {
+              // EMA5 오버레이 라인
+              label: 'EMA5',
+              data: vvEMA5,
+              type: 'line',
+              borderColor: 'rgba(255,255,255,0.5)',
+              backgroundColor: 'transparent',
+              borderWidth: 1.5,
+              pointRadius: 0,
+              tension: 0.3,
+              spanGaps: true,
+            }
+          ]
         },
-        options: opts,
+        options: {
+          ...opts,
+          plugins: {
+            ...opts.plugins,
+            tooltip: {
+              ...opts.plugins.tooltip,
+              callbacks: {
+                label: item => {
+                  if (item.dataset.label === 'EMA5') return `EMA5: ${item.parsed.y?.toFixed(4) ?? '—'}`;
+                  return `VV 누적: ${item.parsed.y?.toFixed(4) ?? '—'} pt`;
+                }
+              }
+            }
+          }
+        },
         plugins: [sessionPlugin(labels)]
       });
     }
