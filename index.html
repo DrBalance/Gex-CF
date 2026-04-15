@@ -1545,6 +1545,14 @@ function destroyVCPanes() {
   if (vcPaneVC)  { vcPaneVC.destroy();  vcPaneVC  = null; }
   if (vcPaneVV)  { vcPaneVV.destroy();  vcPaneVV  = null; }
   if (vcPaneOBV) { vcPaneOBV.destroy(); vcPaneOBV = null; }
+  // canvas 재생성 (destroy 후 오염 방지)
+  ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      const wrap = el.parentElement;
+      wrap.innerHTML = `<canvas id="${id}"></canvas>`;
+    }
+  });
 }
 
 function renderVCChart() {
@@ -1558,8 +1566,10 @@ function renderVCChart() {
     return;
   }
 
-  // 표시할 슬라이스: 최근 vcRangePoints개
-  const slice = vcHistory.slice(-vcRangePoints);
+  // 표시할 슬라이스: 데이터가 vcRangePoints보다 적으면 전체 표시
+  const slice = vcHistory.length <= vcRangePoints
+    ? vcHistory
+    : vcHistory.slice(-vcRangePoints);
   const labels  = slice.map(h => h.time);
   const vannaD  = slice.map(h => h.vanna);
   const charmD  = slice.map(h => h.charm);
@@ -1651,45 +1661,55 @@ function renderVCChart() {
 
   // 페인2: VV (VIX Velocity)
   const vvEl = document.getElementById('vc-pane-vv');
+  const hasVV = vvD.some(v => v != null);
   if (vvEl) {
-    const opts = commonOpts('#d29922', item => `VV: ${item.parsed.y?.toFixed(4) ?? '—'} pt/min`);
-    opts.scales.y.ticks.callback = v => v?.toFixed(3);
-    // 0선 강조
-    opts.scales.y.grid = { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(48,54,61,.4)' };
-    vcPaneVV = new Chart(vvEl, {
-      type: 'line', data: {
-        labels,
-        datasets: [{
-          label:'VV', data: vvD,
-          borderColor:'#d29922', backgroundColor: ctx => {
-            const v = ctx.parsed?.y;
-            return v >= 0 ? 'rgba(248,81,73,.12)' : 'rgba(63,185,80,.12)';
-          },
-          fill: 'origin', borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.2, spanGaps:true
-        }]
-      },
-      options: opts,
-      plugins: [sessionPlugin(labels)]
-    });
+    if (!hasVV) {
+      // Cron 데이터 아직 없음 — 빈 안내
+      vvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">VV — Cron 5분 후 적재</div>';
+    } else {
+      const opts = commonOpts('#d29922', item => `VV: ${item.parsed.y?.toFixed(4) ?? '—'} pt/min`);
+      opts.scales.y.ticks.callback = v => v?.toFixed(3);
+      opts.scales.y.grid = { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(48,54,61,.4)' };
+      vcPaneVV = new Chart(vvEl, {
+        type: 'line', data: {
+          labels,
+          datasets: [{
+            label:'VV', data: vvD,
+            borderColor:'#d29922', backgroundColor: ctx => {
+              const v = ctx.parsed?.y;
+              return v >= 0 ? 'rgba(248,81,73,.12)' : 'rgba(63,185,80,.12)';
+            },
+            fill: 'origin', borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.2, spanGaps:true
+          }]
+        },
+        options: opts,
+        plugins: [sessionPlugin(labels)]
+      });
+    }
   }
 
   // 페인3: OBV
   const obvEl = document.getElementById('vc-pane-obv');
+  const hasOBV = obvD.some(v => v != null);
   if (obvEl) {
-    const opts = commonOpts('#3fb950', item => `OBV: ${item.parsed.y?.toFixed(1) ?? '—'}M주`);
-    opts.scales.y.ticks.callback = v => v?.toFixed(0) + 'M';
-    vcPaneOBV = new Chart(obvEl, {
-      type: 'line', data: {
-        labels,
-        datasets: [{
-          label:'OBV', data: obvD,
-          borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,.08)',
-          fill:true, borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.3, spanGaps:true
-        }]
-      },
-      options: opts,
-      plugins: [sessionPlugin(labels)]
-    });
+    if (!hasOBV) {
+      obvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">OBV — Cron 5분 후 적재</div>';
+    } else {
+      const opts = commonOpts('#3fb950', item => `OBV: ${item.parsed.y?.toFixed(1) ?? '—'}M주`);
+      opts.scales.y.ticks.callback = v => v?.toFixed(0) + 'M';
+      vcPaneOBV = new Chart(obvEl, {
+        type: 'line', data: {
+          labels,
+          datasets: [{
+            label:'OBV', data: obvD,
+            borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,.08)',
+            fill:true, borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.3, spanGaps:true
+          }]
+        },
+        options: opts,
+        plugins: [sessionPlugin(labels)]
+      });
+    }
   }
 
   // 신호등 업데이트
