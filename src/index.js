@@ -1291,8 +1291,11 @@ export default {
       if (vixCronHistory.length > 0 && vixCronHistory[0]?._date !== todayEST) vixCronHistory = [];
     } catch (_) {}
 
-    // VIX 현재가 조회 (MD App → Yahoo 폴백)
+    // VIX 현재가 조회 — MD App + updatedAt 신선도 체크 → Yahoo 폴백
     let vixNow = null;
+    const STALE_SECONDS = 300; // 5분 이상 오래된 값은 스테일
+    const nowUnix = Math.floor(Date.now() / 1000);
+
     try {
       const mdR = await fetch(
         `https://api.marketdata.app/v1/indices/quotes/VIX/`,
@@ -1304,14 +1307,21 @@ export default {
       if (mdR.ok) {
         const mdJ = await mdR.json();
         if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
-          vixNow = mdJ.last[0];
+          const updatedAt = mdJ.updated?.[0] ?? null;
+          const ageSeconds = updatedAt ? nowUnix - updatedAt : 9999;
+          if (ageSeconds <= STALE_SECONDS) {
+            vixNow = mdJ.last[0];
+            console.log(`[Cron] VIX MD ok: ${vixNow} (age ${ageSeconds}s)`);
+          } else {
+            console.warn(`[Cron] VIX MD stale: age=${ageSeconds}s, trying Yahoo`);
+          }
         }
       }
     } catch (e) {
       console.warn('[Cron] VIX MD failed:', e.message);
     }
 
-    // Yahoo 폴백
+    // Yahoo 폴백 (MD App 실패 또는 스테일)
     if (vixNow == null) {
       try {
         const yR = await fetch(
@@ -1320,7 +1330,10 @@ export default {
         );
         const yJ = await yR.json();
         const meta = yJ?.chart?.result?.[0]?.meta;
-        if (meta?.regularMarketPrice) vixNow = meta.regularMarketPrice;
+        if (meta?.regularMarketPrice) {
+          vixNow = meta.regularMarketPrice;
+          console.log(`[Cron] VIX Yahoo ok: ${vixNow}`);
+        }
       } catch (e) {
         console.warn('[Cron] VIX Yahoo fallback failed:', e.message);
       }
