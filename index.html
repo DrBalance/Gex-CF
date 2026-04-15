@@ -157,6 +157,9 @@ select,button{font-family:var(--font);font-size:14px}
 .vc-zoom-slider{-webkit-appearance:none;width:120px;height:4px;border-radius:2px;background:var(--bg3);outline:none;cursor:pointer}
 .vc-zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--blue);cursor:pointer}
 .vc-zoom-val{font-size:11px;color:var(--blue);font-family:var(--mono);min-width:24px}
+.vc-range-btn{font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg3);color:var(--text3);cursor:pointer;font-family:var(--font);transition:all .15s}
+.vc-range-btn:hover{color:var(--text2);border-color:var(--text3)}
+.vc-range-btn.active{background:var(--blue-dim);color:var(--blue);border-color:var(--blue-dim)}
 .vc-scroll-wrap{overflow-x:auto;overflow-y:hidden;border-radius:6px;border:1px solid var(--border)}
 .vc-scroll-wrap::-webkit-scrollbar{height:4px}
 .vc-scroll-wrap::-webkit-scrollbar-track{background:var(--bg3)}
@@ -355,7 +358,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
 
 <script>
 const PROXY = 'https://api.drbalance.xyz';
-let chartInst = null, chartInstDate = null, vcChartInst = null, vcChartInstDate = null;
+let chartInst = null, chartInstDate = null;
 let allOptions = [], spotPrice = 0, vixVal = null, vvixVal = null;
 let currentStrikes = [], currentD = null;
 let liveEvents = [];
@@ -749,14 +752,16 @@ async function load0DTE() {
     if (isFirstLoad && results[3] && !results[3].error) {
       const kvHistory = results[3].history || [];
       if (kvHistory.length > 0) {
-        // KV 데이터를 vcHistory 형식으로 변환
+        // KV 데이터를 vcHistory 형식으로 변환 (vv/obv 필드 포함)
         vcHistory = kvHistory.map(p => ({
-          time:  p.time,
-          vanna: p.vanna,
-          charm: p.charm,
-          gex:   p.gex,
-          vix:   p.vix,
-          spot:  p.spot,
+          time:     p.time,
+          vanna:    p.vanna,
+          charm:    p.charm,
+          vix:      p.vix,
+          vv:       p.vv      ?? null,
+          obv:      p.obv     ?? null,
+          obvSlope: p.obvSlope ?? null,
+          spot:     p.spot,
         }));
         console.log(`[load0DTE] KV 시계열 로드: ${vcHistory.length}포인트`);
       }
@@ -764,29 +769,43 @@ async function load0DTE() {
 
     if (d0.error) throw new Error(d0.error);
 
-    vixVal  = vixJson.VIX?.price;
-    vvixVal = vixJson.VVIX?.price;
+    vixVal  = vixJson.VIX?.price ?? null;
+    vvixVal = vixJson.VVIX?.price ?? null;
+
+    // VV 계산: priceHistory에서 5분 전 VIX와 현재 VIX 비교
+    let vvNow = null;
+    const vixHistoryPts = vcHistory.filter(h => h.vix != null);
+    if (vixHistoryPts.length >= 1 && vixVal != null) {
+      const prev5 = vixHistoryPts.length >= 1 ? vixHistoryPts[vixHistoryPts.length - 1] : null;
+      if (prev5 && prev5.vix != null) {
+        vvNow = parseFloat(((vixVal - prev5.vix) / 5).toFixed(4));
+      }
+    }
 
     const newSpot = priceJson.price || d0.spotPrice;
     const marketState = priceJson.marketState || 'REGULAR';
     const preMarketPct = priceJson.preMarketChangePercent;
     const prevClose    = priceJson.prevClose;
 
-    // vcHistory 누적
+    // KST 시간 문자열 (차트 x축용 — Cron과 동일 기준)
     const now = new Date();
+    const kstTimeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Seoul' });
     const timeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' });
+
     priceHistory.push({ time: timeStr, price: newSpot, marketState, vix: vixVal, vvix: vvixVal, ts: now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
 
     vcHistory.push({
-      time:  timeStr,
-      vanna: d0.vanna,
-      charm: d0.charm,
-      gex:   d0.localGEX,
-      vix:   vixVal,
-      spot:  newSpot,
+      time:     kstTimeStr,
+      vanna:    d0.vanna,
+      charm:    d0.charm,
+      vix:      vixVal,
+      vv:       vvNow,
+      obv:      null, // Cron에서 채워짐, 클라이언트에서는 null
+      obvSlope: null,
+      spot:     newSpot,
     });
-    if (vcHistory.length > 120) vcHistory.shift();
+    if (vcHistory.length > 200) vcHistory.shift();
 
     // currentD 동기화 (판단 패널 함수들이 사용)
     const strikes = d0.strikes || [];
@@ -901,8 +920,8 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
       <div class="metric red"><div class="val">${putWall?'$'+putWall:'—'}</div><div class="lbl">Put Wall</div></div>
       <div class="metric green"><div class="val">${callWall?'$'+callWall:'—'}</div><div class="lbl">Call Wall</div></div>
       <div class="metric ${localGEX<0?'red':'green'}"><div class="val">${(localGEX/1e6).toFixed(1)}M</div><div class="lbl">Local GEX</div></div>
-      <div class="metric ${vixVal&&vixVal>30?'danger':vixVal&&vixVal>20?'warn':'yellow'}" id="metric-vix"><div class="val">${vixDisplay}</div><div class="lbl">VIX</div></div>
-      <div class="metric ${vvixVal&&vvixVal>130?'danger':vvixVal&&vvixVal>110?'warn':'yellow'}" id="metric-vvix"><div class="val">${vvixDisplay}</div><div class="lbl">VVIX</div></div>
+      <div class="metric ${vixVal&&vixVal>30?'danger':vixVal&&vixVal>20?'warn':'yellow'}" id="metric-vix"><div class="val">${vixDisplay}${vixJson?.VIX?.pctChange!=null?`<span style="font-size:12px;opacity:.75;margin-left:3px">(${vixJson.VIX.pctChange>0?'+':''}${vixJson.VIX.pctChange.toFixed(1)}%)</span>`:''}</div><div class="lbl">VIX &nbsp;<span id="metric-vv" style="color:var(--text3);font-size:10px;font-family:var(--mono)">VV —</span></div></div>
+      <div class="metric" id="metric-obv"><div class="val" id="metric-obv-val" style="font-size:16px">—</div><div class="lbl">OBV &nbsp;<span id="metric-obv-slope" style="font-size:10px;color:var(--text3);font-family:var(--mono)">—</span></div></div>
       <div class="metric" id="metric-vanna" style="border-color:#bc8cff55"><div class="val" style="color:#bc8cff">${d0.vanna.toFixed(1)}M</div><div class="lbl" style="color:#bc8cff">● Vanna Exp</div></div>
       <div class="metric" id="metric-charm" style="border-color:#58a6ff55"><div class="val" style="color:#58a6ff">${d0.charm.toFixed(1)}M</div><div class="lbl" style="color:#58a6ff">● Charm · VC ${Math.abs(d0.vanna)>0?(Math.abs(d0.charm)/Math.abs(d0.vanna)).toFixed(2):'—'}</div></div>
     </div>
@@ -939,7 +958,6 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
     <div id="greek-metrics-row" style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 0;border-bottom:1px solid var(--border)">
       <div class="greek-metric-card" id="gmc-vanna"><div class="gmc-header"><span class="gmc-dot" style="background:#bc8cff"></span><span class="gmc-name">Vanna</span><span class="gmc-signal" id="gmc-vanna-signal">—</span></div><div class="gmc-value" id="gmc-vanna-val">—</div><div class="gmc-desc" id="gmc-vanna-desc">갱신 후 표시</div></div>
       <div class="greek-metric-card" id="gmc-charm"><div class="gmc-header"><span class="gmc-dot" style="background:#58a6ff"></span><span class="gmc-name">Charm</span><span class="gmc-signal" id="gmc-charm-signal">—</span></div><div class="gmc-value" id="gmc-charm-val">—</div><div class="gmc-desc" id="gmc-charm-desc">갱신 후 표시</div></div>
-      <div class="greek-metric-card" id="gmc-gex"><div class="gmc-header"><span class="gmc-dot" style="background:#3fb950"></span><span class="gmc-name">GEX</span><span class="gmc-signal" id="gmc-gex-signal">—</span></div><div class="gmc-value" id="gmc-gex-val">—</div><div class="gmc-desc" id="gmc-gex-desc">갱신 후 표시</div></div>
       <div class="greek-metric-card" style="flex:1;min-width:160px" id="gmc-dominant"><div class="gmc-header"><span class="gmc-name" style="color:var(--text2)">◈ 지배 Greek</span></div><div class="gmc-value" id="gmc-dominant-val" style="font-size:13px">—</div><div class="gmc-desc" id="gmc-flip-desc">—</div></div>
     </div>
     <div class="vc-chart-area" style="width:100%;border-right:none">
@@ -948,18 +966,59 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
         <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
           <span style="font-size:12px;color:#bc8cff;font-weight:600">● Vanna</span>
           <span style="font-size:12px;color:#58a6ff;font-weight:600">● Charm</span>
-          <span style="font-size:12px;color:#d29922;font-weight:600">— VIX</span>
-          <span style="font-size:12px;color:#3fb950;font-weight:600">▪ GEX 배경</span>
+          <span style="font-size:12px;color:#d29922;font-weight:600">● VV</span>
+          <span style="font-size:12px;color:#3fb950;font-weight:600">● OBV</span>
         </div>
       </div>
-      <div class="vc-zoom-row">
-        <span class="vc-zoom-label">확대</span>
-        <input type="range" class="vc-zoom-slider" min="1" max="6" step="0.5" value="1" oninput="updateVCZoom(this.value)">
-        <span class="vc-zoom-val" id="vc-zoom-val">1×</span>
+      <!-- 시간범위 버튼 + 슬라이더 -->
+      <div class="vc-zoom-row" style="gap:8px;flex-wrap:wrap">
+        <div style="display:flex;gap:4px">
+          <button class="vc-range-btn active" id="vcrange-2h" onclick="setVCRange('2h')">2H</button>
+          <button class="vc-range-btn" id="vcrange-4h" onclick="setVCRange('4h')">4H</button>
+          <button class="vc-range-btn" id="vcrange-8h" onclick="setVCRange('8h')">8H</button>
+          <button class="vc-range-btn" id="vcrange-1d" onclick="setVCRange('1d')">1D</button>
+          <button class="vc-range-btn" id="vcrange-all" onclick="setVCRange('all')">ALL</button>
+        </div>
+        <input type="range" class="vc-zoom-slider" id="vc-zoom-slider" min="12" max="200" step="1" value="24" oninput="onVCSlider(this.value)">
+        <span class="vc-zoom-val" id="vc-zoom-val">2H</span>
         <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
       </div>
-      <div class="vc-scroll-wrap" id="vc-scroll-wrap">
-        <div class="vc-chart-inner" id="vc-chart-inner"><canvas id="vc-chart"></canvas></div>
+      <!-- 3-페인 동기화 차트 -->
+      <div id="vc-multipane-wrap" style="overflow-x:auto;width:100%;cursor:grab" onscroll="syncVCPanes(this.scrollLeft)">
+        <!-- 페인1: Vanna + Charm -->
+        <div style="position:relative">
+          <div style="font-size:10px;color:var(--text3);padding:4px 8px;display:flex;gap:10px">
+            <span style="color:#bc8cff">● Vanna</span><span style="color:#58a6ff">● Charm</span>
+          </div>
+          <div style="position:relative;height:220px">
+            <canvas id="vc-pane-vc"></canvas>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--border);margin:0"></div>
+        <!-- 페인2: VV -->
+        <div style="position:relative">
+          <div style="font-size:10px;color:var(--text3);padding:4px 8px">
+            <span style="color:#d29922">● VIX Velocity (pt/min)</span>
+          </div>
+          <div style="position:relative;height:220px">
+            <canvas id="vc-pane-vv"></canvas>
+          </div>
+        </div>
+        <div style="height:1px;background:var(--border);margin:0"></div>
+        <!-- 페인3: OBV -->
+        <div style="position:relative">
+          <div style="font-size:10px;color:var(--text3);padding:4px 8px">
+            <span style="color:#3fb950">● OBV 누적 (수급)</span>
+          </div>
+          <div style="position:relative;height:220px">
+            <canvas id="vc-pane-obv"></canvas>
+          </div>
+        </div>
+      </div>
+      <!-- 신호등 패널 -->
+      <div id="vc-signal-bar" style="padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600;letter-spacing:.02em;min-height:38px;display:flex;align-items:center;gap:12px">
+        <span id="vc-signal-icon">—</span>
+        <span id="vc-signal-text" style="color:var(--text2)">데이터 누적 중...</span>
       </div>
     </div>
   </div>
@@ -1170,17 +1229,14 @@ let vvixPriceHistory = [];
 async function loadVIX() {
   try {
     const data = await fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r=>r.json());
+    window._lastVixJson = data; // updateVIXMetrics에서 pctChange 참조용
 
-    // MD App 응답: { VIX: { price: 29.92, prevClose: ..., pctChange: ... } }
-    // price는 숫자 그대로 (VIX=29.92, VVIX=110.5)
     vixVal  = data.VIX?.price  ?? null;
     vvixVal = data.VVIX?.price ?? null;
 
-    // 다이버전스용 히스토리 누적
     if (vixVal  != null) { vixPriceHistory.push(vixVal);   if (vixPriceHistory.length  > 120) vixPriceHistory.shift();  }
     if (vvixVal != null) { vvixPriceHistory.push(vvixVal); if (vvixPriceHistory.length > 120) vvixPriceHistory.shift(); }
 
-    // 다이버전스 감지
     const vixDiv  = detectVIXDivergence(vixPriceHistory,  'VIX');
     const vvixDiv = detectVIXDivergence(vvixPriceHistory, 'VVIX');
     pushDivergenceEvent(vixDiv,  'VIX');
@@ -1222,14 +1278,54 @@ function pushDivergenceEvent(div, symKey) {
 
 function updateVIXMetrics() {
   const vm = document.getElementById('metric-vix');
-  const vvm = document.getElementById('metric-vvix');
   if (vm && vixVal != null) {
-    vm.querySelector('.val').textContent = vixVal.toFixed(2);
+    // VIX 값 + 전일대비% 표시
+    const pctChange = window._lastVixJson?.VIX?.pctChange;
+    const pctStr = pctChange != null
+      ? ` <span style="font-size:12px;opacity:.75">(${pctChange>0?'+':''}${pctChange.toFixed(1)}%)</span>` : '';
+    vm.querySelector('.val').innerHTML = vixVal.toFixed(2) + pctStr;
     vm.className = 'metric ' + (vixVal>30?'danger':vixVal>20?'warn':'yellow');
   }
-  if (vvm && vvixVal != null) {
-    vvm.querySelector('.val').textContent = vvixVal.toFixed(2);
-    vvm.className = 'metric ' + (vvixVal>130?'danger':vvixVal>110?'warn':'yellow');
+
+  // VV 업데이트 (vcHistory 최신값에서)
+  const vvEl = document.getElementById('metric-vv');
+  if (vvEl && vcHistory.length > 0) {
+    const lastVV = vcHistory.filter(h => h.vv != null).slice(-1)[0]?.vv;
+    if (lastVV != null) {
+      const sign = lastVV >= 0 ? '+' : '';
+      const color = lastVV > 0.05 ? 'var(--red)' : lastVV < -0.05 ? 'var(--green)' : 'var(--text3)';
+      vvEl.textContent = `VV ${sign}${lastVV.toFixed(3)}`;
+      vvEl.style.color = color;
+    }
+  }
+
+  // OBV 메트릭 카드 업데이트
+  const obvValEl    = document.getElementById('metric-obv-val');
+  const obvSlopeEl  = document.getElementById('metric-obv-slope');
+  const obvCard     = document.getElementById('metric-obv');
+  if (obvValEl && vcHistory.length > 0) {
+    const lastObv = vcHistory.filter(h => h.obv != null).slice(-1)[0];
+    if (lastObv) {
+      const obv = lastObv.obv;
+      const slope = lastObv.obvSlope;
+      // 단위: M주
+      const fmt = v => {
+        const abs = Math.abs(v), sign = v < 0 ? '-' : '+';
+        if (abs >= 1e9) return sign + (abs/1e9).toFixed(2) + 'B';
+        if (abs >= 1e6) return (v/1e6).toFixed(1) + 'M';
+        return (v/1e3).toFixed(0) + 'K';
+      };
+      obvValEl.textContent = fmt(obv);
+      const slopeDir = slope > 0 ? '↑' : slope < 0 ? '↓' : '→';
+      const slopeColor = slope > 0 ? 'var(--green)' : slope < 0 ? 'var(--red)' : 'var(--text3)';
+      if (obvSlopeEl) {
+        obvSlopeEl.textContent = `${slopeDir} ${fmt(slope??0)}/15m`;
+        obvSlopeEl.style.color = slopeColor;
+      }
+      if (obvCard) {
+        obvCard.className = 'metric ' + (slope > 0 ? 'green' : slope < 0 ? 'red' : '');
+      }
+    }
   }
 }
 
@@ -1399,342 +1495,257 @@ function isEDT() {
   return etStr.includes('EDT');
 }
 
-// 프리장~마감 KST 시간 라벨 생성 (1분 단위)
-function buildTimeAxis() {
-  const labels = [];
-  // 섬머타임: 프리 4:00 AM ET = KST 17:00 / 마감 4:00 PM ET = KST 05:00+1
-  // 표준시:   프리 4:00 AM ET = KST 18:00 / 마감 4:00 PM ET = KST 06:00+1
-  const preHourKST = isEDT() ? 17 : 18;  // 프리장 시작 KST 시
-  const closeHourKST = preHourKST + 12;  // 마감 KST 시 (정규장 6.5h + 프리 6.5h = 12h 이내)
-  // 총 분: 4:00 AM ET ~ 4:00 PM ET = 12시간 = 720분
-  for (let m = 0; m < 720; m++) {
-    const totalMin = preHourKST * 60 + m;
-    const h = Math.floor(totalMin / 60) % 24;
-    const min = totalMin % 60;
-    // 주요 시간만 라벨 표시 (30분 단위)
-    if (min % 30 === 0) {
-      labels.push(`${String(h).padStart(2,'0')}:${String(min).padStart(2,'0')}`);
-    } else {
-      labels.push('');
-    }
-  }
-  return labels;
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 멀티페인 차트 헬퍼
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let vcPaneVC = null, vcPaneVV = null, vcPaneOBV = null;
+let vcRangePoints = 24;
+
+function pointsToLabel(pts) {
+  if (pts <= 12)  return '1H';
+  if (pts <= 24)  return '2H';
+  if (pts <= 48)  return '4H';
+  if (pts <= 96)  return '8H';
+  if (pts <= 192) return '1D';
+  return 'ALL';
 }
 
-// vcHistory 항목을 시간축 인덱스로 변환
-function getTimeIndex(timeStr) {
-  // timeStr: "08:43:02" (en-GB 24시간 형식, KST)
-  try {
-    const parts = timeStr.split(':');
-    const kstH = parseInt(parts[0]);
-    const kstM = parseInt(parts[1]);
-    const preHourKST = isEDT() ? 17 : 18;
-    const idx = (kstH * 60 + kstM) - (preHourKST * 60);
-    return Math.max(0, Math.min(719, idx));
-  } catch {
-    return -1;
-  }
+function setVCRange(range) {
+  const map = { '2h':24, '4h':48, '8h':96, '1d':192, 'all':200 };
+  vcRangePoints = map[range] || 24;
+  const sl = document.getElementById('vc-zoom-slider');
+  if (sl) sl.value = Math.min(vcRangePoints, 200);
+  const lbl = document.getElementById('vc-zoom-val');
+  if (lbl) lbl.textContent = range.toUpperCase();
+  ['2h','4h','8h','1d','all'].forEach(r => {
+    const btn = document.getElementById('vcrange-' + r);
+    if (btn) btn.className = 'vc-range-btn' + (r === range ? ' active' : '');
+  });
+  renderVCChart();
+}
+
+function onVCSlider(val) {
+  vcRangePoints = parseInt(val);
+  // 가장 가까운 버튼 하이라이트 해제 (커스텀 모드)
+  const lbl = document.getElementById('vc-zoom-val');
+  if (lbl) lbl.textContent = pointsToLabel(vcRangePoints);
+  ['2h','4h','8h','1d','all'].forEach(r => {
+    const btn = document.getElementById('vcrange-' + r);
+    if (btn) btn.className = 'vc-range-btn';
+  });
+  renderVCChart();
+}
+
+function syncVCPanes(scrollLeft) {
+  // 멀티페인 wrap이 하나이므로 별도 동기화 불필요
+}
+
+function destroyVCPanes() {
+  if (vcPaneVC)  { vcPaneVC.destroy();  vcPaneVC  = null; }
+  if (vcPaneVV)  { vcPaneVV.destroy();  vcPaneVV  = null; }
+  if (vcPaneOBV) { vcPaneOBV.destroy(); vcPaneOBV = null; }
 }
 
 function renderVCChart() {
-  // 현재 활성 탭 감지 — 탭별 인스턴스 독립 관리
-  const isDateTab = document.getElementById('area-date')?.style.display !== 'none';
-  const vsfx = isDateTab ? '-date' : '';
-  const _vcInst = isDateTab ? vcChartInstDate : vcChartInst;
-
-  const wrap = document.getElementById('vc-scroll-wrap' + vsfx);
-  const inner = document.getElementById('vc-chart-inner' + vsfx);
-  if (!wrap || !inner) return;
-
-  // vcHistory가 비어있으면 대기 메시지 표시
   if (vcHistory.length === 0) {
-    if (isDateTab) { if (vcChartInstDate){vcChartInstDate.destroy();vcChartInstDate=null;} }
-    else            { if (vcChartInst){vcChartInst.destroy();vcChartInst=null;} }
-    inner.innerHTML = '<div class="vc-empty" style="padding:60px 0;text-align:center;color:var(--text3);font-size:13px">자동갱신 후 Greek 흐름이 여기에 표시됩니다<br><span style="font-size:11px;opacity:.6">1분 주기로 데이터 누적</span></div>';
+    const bar = document.getElementById('vc-signal-bar');
+    if (bar) {
+      document.getElementById('vc-signal-icon').textContent = '—';
+      document.getElementById('vc-signal-text').textContent = '데이터 누적 중... (KST 17:00(EDT)/18:00(EST) 프리마켓부터 5분 Cron 자동 적재)';
+      document.getElementById('vc-signal-text').style.color = 'var(--text3)';
+    }
     return;
   }
 
-  // canvas 재생성 (destroy 후 오염 방지)
-  if (isDateTab) { if (vcChartInstDate){vcChartInstDate.destroy();vcChartInstDate=null;} }
-  else            { if (vcChartInst){vcChartInst.destroy();vcChartInst=null;} }
-  inner.innerHTML = '<canvas id="vc-chart' + vsfx + '"></canvas>';
+  // 표시할 슬라이스: 최근 vcRangePoints개
+  const slice = vcHistory.slice(-vcRangePoints);
+  const labels  = slice.map(h => h.time);
+  const vannaD  = slice.map(h => h.vanna);
+  const charmD  = slice.map(h => h.charm);
+  const vvD     = slice.map(h => h.vv   ?? null);
+  const obvD    = slice.map(h => h.obv  != null ? h.obv / 1e6 : null); // 단위: 백만주
 
-  const baseW = wrap.clientWidth || 600;
-  inner.style.width = Math.max(baseW, baseW * vcZoom) + 'px';
-
-  // 720분 고정 시간축
-  const timeLabels = buildTimeAxis();
-  const totalSlots = 720;
-
-  // 빈 배열로 초기화
-  const vannaArr = new Array(totalSlots).fill(null);
-  const charmArr = new Array(totalSlots).fill(null);
-  const vixArr   = new Array(totalSlots).fill(null);
-  const gexArr   = new Array(totalSlots).fill(null);
-
-  // vcHistory → 시간축 인덱스에 매핑
-  vcHistory.forEach(h => {
-    const idx = getTimeIndex(h.time);
-    if (idx >= 0 && idx < totalSlots) {
-      vannaArr[idx] = h.vanna;
-      charmArr[idx] = h.charm;
-      vixArr[idx]   = h.vix;
-      gexArr[idx]   = h.gex;
-    }
-  });
-
-  if (vcChartInst) { vcChartInst.destroy(); vcChartInst = null; }
-
-  // Y축 라벨: 1M, -1M 형식
-  const mFormatter = v => {
+  const mFmt = v => {
     if (v == null) return '';
-    const abs = Math.abs(v);
-    const sign = v < 0 ? '-' : '';
+    const abs = Math.abs(v), sign = v < 0 ? '-' : '';
     if (abs >= 1000) return sign + (abs/1000).toFixed(1) + 'B';
-    return sign + abs + 'M';
+    return sign + abs.toFixed(1) + 'M';
   };
 
-  // GEX 배경 플러그인 (각 시간 슬롯마다 세로로 색칠)
-  const gexBgPlugin = {
-    id: 'gexBackground',
-    beforeDraw(chart) {
-      const { ctx, chartArea, scales } = chart;
-      if (!chartArea || !scales.x) return;
-      const { top, bottom } = chartArea;
-      const height = bottom - top;
-      ctx.save();
-      // 데이터가 있는 구간만 색칠
-      let lastVal = null;
-      for (let i = 0; i < totalSlots; i++) {
-        const val = gexArr[i] !== null ? gexArr[i] : lastVal;
-        if (val == null) continue;
-        lastVal = val;
-        const x0 = scales.x.getPixelForValue(i);
-        const x1 = scales.x.getPixelForValue(i + 1);
-        const w = Math.max(x1 - x0, 0.5);
-        ctx.fillStyle = val >= 0
-          ? 'rgba(63,185,80,0.10)'
-          : 'rgba(248,81,73,0.10)';
-        ctx.fillRect(x0, top, w, height);
-      }
-      ctx.restore();
-    }
-  };
-
-  // 정규장 시작/마감 수직선 플러그인
-  const sessionLinePlugin = {
-    id: 'sessionLines',
+  // 세션 수직선 플러그인
+  const sessionPlugin = (labels) => ({
+    id: 'sessionLine',
     afterDraw(chart) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea || !scales.x) return;
-      const preHourKST = isEDT() ? 17 : 18;
-      // 정규장 시작: ET 9:30 = KST preHour+5:30
-      const regularStartIdx = 5 * 60 + 30; // 330분
-      // 마감: ET 16:00 = KST preHour+12:00
-      const regularEndIdx = 12 * 60; // 720분 (마지막)
-
+      // 정규장 개장: ET 09:30 → KST 22:30(EDT) or 23:30(EST)
+      const openKST = isEDT() ? '22:30' : '23:30';
+      const openIdx = labels.findIndex(t => t >= openKST);
+      if (openIdx < 0) return;
       ctx.save();
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
       ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-
-      [regularStartIdx].forEach(idx => {
-        if (idx >= 0 && idx < totalSlots) {
-          const x = scales.x.getPixelForValue(idx);
-          ctx.beginPath();
-          ctx.moveTo(x, chartArea.top);
-          ctx.lineTo(x, chartArea.bottom);
-          ctx.stroke();
-          // 라벨
-          ctx.fillStyle = 'rgba(255,255,255,0.4)';
-          ctx.font = '10px monospace';
-          ctx.fillText('개장', x + 3, chartArea.top + 12);
-        }
-      });
+      ctx.setLineDash([4,4]);
+      const x = scales.x.getPixelForValue(openIdx);
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.font = '9px monospace';
+      ctx.fillText('개장', x + 3, chartArea.top + 10);
       ctx.restore();
     }
-  };
-
-  const _newVcInst = new Chart(document.getElementById('vc-chart' + vsfx), {
-    type: 'line',
-    data: {
-      labels: timeLabels,
-      datasets: [
-        {
-          label: 'Vanna (M)',
-          data: vannaArr,
-          borderColor: '#bc8cff',
-          backgroundColor: 'transparent',
-          fill: false,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          spanGaps: true,
-          yAxisID: 'y',
-        },
-        {
-          label: 'Charm (M)',
-          data: charmArr,
-          borderColor: '#58a6ff',
-          backgroundColor: 'transparent',
-          fill: false,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          spanGaps: true,
-          yAxisID: 'y',
-        },
-        {
-          label: 'VIX',
-          data: vixArr,
-          borderColor: '#d29922',
-          backgroundColor: 'transparent',
-          fill: false,
-          borderWidth: 2,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.3,
-          spanGaps: true,
-          yAxisID: 'yVix',
-        },
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
-          titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 10,
-          filter: item => item.parsed.y !== null,
-          callbacks: {
-            title: items => timeLabels[items[0].dataIndex] || '',
-            label: item => {
-              const ds = item.dataset.label;
-              const v = item.parsed.y;
-              if (v == null) return null;
-              if (ds === 'VIX') return `VIX: ${v.toFixed(2)}`;
-              return `${ds}: ${v.toFixed(1)}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: '#6e7681',
-            font: { size: 10 },
-            maxRotation: 0,
-            autoSkip: false,
-            callback: (val, idx) => timeLabels[idx] || '',
-          },
-          grid: { color: 'rgba(48,54,61,.4)' }
-        },
-        y: {
-          position: 'left',
-          ticks: { color: '#8b949e', font:{ size:10 }, callback: mFormatter },
-          grid: { color:'rgba(48,54,61,.4)' },
-          afterDataLimits(scale) {
-            const range = scale.max - scale.min;
-            const pad = range === 0 ? (Math.abs(scale.max) * 0.3 || 1) : range * 0.22;
-            scale.min -= pad;
-            scale.max += pad;
-          }
-        },
-        yVix: {
-          position: 'right',
-          ticks: { color: '#d29922', font:{ size:10 }, callback: v => v?.toFixed(1) },
-          grid: { drawOnChartArea: false },
-          afterDataLimits(scale) {
-            const range = scale.max - scale.min;
-            const pad = range === 0 ? 1 : range * 0.18;
-            scale.min -= pad;
-            scale.max += pad;
-          }
-        }
-      }
-    },
-    plugins: [gexBgPlugin, sessionLinePlugin, {
-      // ── Greek 차트 y축 스크롤 고정 플러그인 ──
-      // scroll wrap 위에 y축 영역을 매 프레임 다시 그려 항상 보이게 함
-      id: 'vcStickyY',
-      afterDraw(chart) {
-        const wrap = document.getElementById('vc-scroll-wrap' + vsfx);
-        if (!wrap) return;
-        const yScale = chart.scales['y'];
-        const yVixScale = chart.scales['yVix'];
-        if (!yScale) return;
-        const scrollX = wrap.scrollLeft;
-        const wrapW = wrap.clientWidth;
-        const { ctx, chartArea, height, width } = chart;
-
-        ctx.save();
-
-        // ── 왼쪽 y축 고정 (스크롤 시만) ──
-        if (scrollX > 0) {
-          const axisW = yScale.right;
-          ctx.fillStyle = '#161b22';
-          ctx.fillRect(scrollX, 0, axisW, height);
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#8b949e';
-          ctx.font = '10px monospace';
-          yScale.ticks.forEach((tick, i) => {
-            const y = yScale.getPixelForTick(i);
-            ctx.fillText(mFormatter(tick.value), scrollX + axisW - 4, y);
-          });
-          ctx.strokeStyle = '#30363d';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(scrollX + axisW, chartArea.top);
-          ctx.lineTo(scrollX + axisW, chartArea.bottom);
-          ctx.stroke();
-        }
-
-        // ── 오른쪽 yVix축 고정 (확대/스크롤 모두 항상 표시) ──
-        if (yVixScale && (scrollX > 0 || wrapW < width)) {
-          const rAxisStart = yVixScale.left;
-          const rAxisW = width - rAxisStart;
-          const fixedRX = scrollX + wrapW - rAxisW;
-          ctx.fillStyle = '#161b22';
-          ctx.fillRect(fixedRX, 0, rAxisW, height);
-          ctx.textAlign = 'left';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = '#d29922';
-          ctx.font = '10px monospace';
-          yVixScale.ticks.forEach((tick, i) => {
-            const y = yVixScale.getPixelForTick(i);
-            ctx.fillText(tick.value?.toFixed(1) ?? '', fixedRX + 4, y);
-          });
-          ctx.strokeStyle = '#30363d';
-          ctx.lineWidth = 1;
-          ctx.beginPath();
-          ctx.moveTo(fixedRX, chartArea.top);
-          ctx.lineTo(fixedRX, chartArea.bottom);
-          ctx.stroke();
-        }
-
-        ctx.restore();
-      }
-    }]
   });
 
-  // 인스턴스 저장 & 스크롤 핸들러
-  if (isDateTab) vcChartInstDate = _newVcInst;
-  else            vcChartInst    = _newVcInst;
+  const commonOpts = (color, fmtCb) => ({
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#161b22', borderColor: '#30363d', borderWidth: 1,
+        titleColor: '#e6edf3', bodyColor: '#8b949e', padding: 8,
+        filter: item => item.parsed.y !== null,
+        callbacks: { label: item => fmtCb(item) }
+      }
+    },
+    scales: {
+      x: {
+        ticks: { color: '#6e7681', font: { size: 10 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 12 },
+        grid: { color: 'rgba(48,54,61,.4)' }
+      },
+      y: {
+        position: 'left',
+        ticks: { color, font: { size: 10 } },
+        grid: { color: 'rgba(48,54,61,.4)' },
+        afterDataLimits(s) {
+          const r = s.max - s.min;
+          const pad = r === 0 ? (Math.abs(s.max) * 0.3 || 0.01) : r * 0.2;
+          s.min -= pad; s.max += pad;
+        }
+      }
+    }
+  });
 
-  const vcWrap = document.getElementById('vc-scroll-wrap' + vsfx);
-  if (vcWrap) {
-    vcWrap._scrollHandler && vcWrap.removeEventListener('scroll', vcWrap._scrollHandler);
-    vcWrap._scrollHandler = () => {
-      const ci = isDateTab ? vcChartInstDate : vcChartInst;
-      if (ci) ci.draw();
-    };
-    vcWrap.addEventListener('scroll', vcWrap._scrollHandler, { passive: true });
+  destroyVCPanes();
+
+  // 페인1: Vanna + Charm
+  const cvEl = document.getElementById('vc-pane-vc');
+  if (cvEl) {
+    const opts = commonOpts('#8b949e', item => `${item.dataset.label}: ${mFmt(item.parsed.y)}`);
+    opts.scales.y.ticks.callback = mFmt;
+    vcPaneVC = new Chart(cvEl, {
+      type: 'line', data: {
+        labels,
+        datasets: [
+          { label:'Vanna', data: vannaD, borderColor:'#bc8cff', backgroundColor:'rgba(188,140,255,.08)', fill:true, borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.3, spanGaps:true },
+          { label:'Charm', data: charmD, borderColor:'#58a6ff', backgroundColor:'transparent', fill:false, borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.3, spanGaps:true },
+        ]
+      },
+      options: opts,
+      plugins: [sessionPlugin(labels)]
+    });
+  }
+
+  // 페인2: VV (VIX Velocity)
+  const vvEl = document.getElementById('vc-pane-vv');
+  if (vvEl) {
+    const opts = commonOpts('#d29922', item => `VV: ${item.parsed.y?.toFixed(4) ?? '—'} pt/min`);
+    opts.scales.y.ticks.callback = v => v?.toFixed(3);
+    // 0선 강조
+    opts.scales.y.grid = { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(48,54,61,.4)' };
+    vcPaneVV = new Chart(vvEl, {
+      type: 'line', data: {
+        labels,
+        datasets: [{
+          label:'VV', data: vvD,
+          borderColor:'#d29922', backgroundColor: ctx => {
+            const v = ctx.parsed?.y;
+            return v >= 0 ? 'rgba(248,81,73,.12)' : 'rgba(63,185,80,.12)';
+          },
+          fill: 'origin', borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.2, spanGaps:true
+        }]
+      },
+      options: opts,
+      plugins: [sessionPlugin(labels)]
+    });
+  }
+
+  // 페인3: OBV
+  const obvEl = document.getElementById('vc-pane-obv');
+  if (obvEl) {
+    const opts = commonOpts('#3fb950', item => `OBV: ${item.parsed.y?.toFixed(1) ?? '—'}M주`);
+    opts.scales.y.ticks.callback = v => v?.toFixed(0) + 'M';
+    vcPaneOBV = new Chart(obvEl, {
+      type: 'line', data: {
+        labels,
+        datasets: [{
+          label:'OBV', data: obvD,
+          borderColor:'#3fb950', backgroundColor:'rgba(63,185,80,.08)',
+          fill:true, borderWidth:2, pointRadius:0, pointHoverRadius:3, tension:0.3, spanGaps:true
+        }]
+      },
+      options: opts,
+      plugins: [sessionPlugin(labels)]
+    });
+  }
+
+  // 신호등 업데이트
+  updateVCSignalBar(slice);
+}
+
+function updateVCSignalBar(slice) {
+  if (slice.length < 3) return;
+  const last = slice[slice.length - 1];
+  const prev5 = slice.length >= 5 ? slice[slice.length - 5] : slice[0];
+
+  const vv = last.vv ?? 0;
+  const obvCur = last.obv ?? 0;
+  const obvPrev = prev5.obv ?? 0;
+  const obvDelta = obvCur - obvPrev; // 최근 5포인트(25분) OBV 변화
+
+  // 가격 방향
+  const spotCur  = last.spot  ?? 0;
+  const spotPrev = prev5.spot ?? 0;
+  const priceDn  = spotCur < spotPrev;
+  const priceUp  = spotCur > spotPrev;
+
+  let icon = '—', msg = '', color = 'var(--text2)';
+
+  // 시퀀스 감지: 선물 헷지 + Charm 반등 준비
+  const charmPositive = (last.charm ?? 0) < 0; // charm<0 = 매수 드리프트
+  const hedgeSignal   = priceDn && Math.abs(obvDelta) < Math.abs(obvCur) * 0.05; // 가격하락인데 OBV 거의 무변화
+
+  if (hedgeSignal && charmPositive) {
+    icon = '🟡'; msg = '선물 헷지 의심 + Charm 매수 드리프트 대기 → Charm 반등 가능성 주의'; color = 'var(--yellow)';
+  } else if (vv > 0.05 && obvDelta < 0) {
+    icon = '🔴'; msg = `VV +${vv.toFixed(3)} pt/min · OBV ↓ 수급 이탈 → 실제 하락 압력 확인`; color = 'var(--red)';
+  } else if (vv > 0.05 && obvDelta >= 0) {
+    icon = '🟡'; msg = `VV +${vv.toFixed(3)} pt/min · OBV 유지 → 헷지 노이즈 가능, 추세 지속 확인 필요`; color = 'var(--yellow)';
+  } else if (vv < -0.05 && obvDelta > 0) {
+    icon = '🟢'; msg = `VV ${vv.toFixed(3)} pt/min · OBV ↑ 수급 유입 → 상승 환경 확인`; color = 'var(--green)';
+  } else if (vv < -0.05 && obvDelta <= 0) {
+    icon = '🟡'; msg = `VV ${vv.toFixed(3)} pt/min · OBV ↓ → VIX만 하락, 수급 미확인`; color = 'var(--yellow)';
+  } else {
+    icon = '⬜'; msg = `VV ${vv.toFixed(3)} pt/min · OBV 중립 → 방향 대기`; color = 'var(--text3)';
+  }
+
+  const iconEl = document.getElementById('vc-signal-icon');
+  const textEl = document.getElementById('vc-signal-text');
+  if (iconEl) iconEl.textContent = icon;
+  if (textEl) { textEl.textContent = msg; textEl.style.color = color; }
+
+  // 실시간 판단 패널에도 push (중요 신호만)
+  const now = new Date();
+  const evTimeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'America/New_York' });
+  if (['🔴','🟢'].includes(icon)) {
+    liveEvents.unshift({ time: evTimeStr + ' ET', cls: icon === '🔴' ? 'le-warn' : 'le-good', msg });
+    if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
+  }
+  if (icon === '🟡' && hedgeSignal) {
+    liveEvents.unshift({ time: evTimeStr + ' ET', cls: 'le-warn', msg });
+    if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
   }
 }
 
@@ -2033,7 +2044,8 @@ async function loadData() {
     const upStrikes=strikes.filter(s=>s.strike>spotPrice&&s.strike<=spotPrice*1.05).sort((a,b)=>b.callHedge-a.callHedge).slice(0,4);
     const dnStrikes=strikes.filter(s=>s.strike<spotPrice&&s.strike>=spotPrice*0.95).sort((a,b)=>b.putHedge-a.putHedge).slice(0,4);
 
-    currentStrikes=strikes; priceHistory=[]; liveEvents=[]; vcHistory=[];
+    currentStrikes=strikes; priceHistory=[]; liveEvents=[];
+    // vcHistory는 0DTE 탭 데이터이므로 날짜탭에서 초기화하지 않음
     prevSpot=spotPrice;
     const d={strikes,spotPrice,flipZone,putWall,callWall,localGEX,totalGEX,pcr,exp,sym,upStrikes,dnStrikes};
     currentD=d;
@@ -2223,12 +2235,6 @@ function render(d){
 
   // VannaCharm 차트: autoRefresh() 완료 후 자동 렌더 (vcHistory 빈 상태에서 호출 불필요)
   renderVCChart(); // 대기 메시지 표시용
-}
-
-function updateVCZoom(val) {
-  vcZoom = parseFloat(val);
-  document.getElementById('vc-zoom-val').textContent = val + '×';
-  renderVCChart();
 }
 
 function buildChart(chartData, sp, flipZone, putWall, callWall, sfx) {
