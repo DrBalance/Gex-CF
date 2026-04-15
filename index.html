@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>딜러 리스크 대시보드 v7.1</title>
+<title>딜러 리스크 대시보드 v7.2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -219,7 +219,7 @@ tr.flip td{background:rgba(240,136,62,.06)}
     <div class="status-text" id="status-text">대기 중</div>
   </div>
   <div style="display:flex;align-items:center;gap:10px">
-    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v7.1 · <span style="color:#3fb950">MD VIX+Div</span></div>
+    <div style="font-size:11px;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:2px 7px;border-radius:4px;border:1px solid var(--border)">v7.2 · <span style="color:#3fb950">VV+OBV Chart</span></div>
     <div style="font-size:12px;color:var(--text3);font-family:var(--mono)">api.drbalance.xyz</div>
     <div class="data-time" id="data-time"></div>
     <a href="/admin.html"
@@ -980,7 +980,7 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
           <button class="vc-range-btn" id="vcrange-1d" onclick="setVCRange('1d')">1D</button>
           <button class="vc-range-btn" id="vcrange-all" onclick="setVCRange('all')">ALL</button>
         </div>
-        <input type="range" class="vc-zoom-slider" id="vc-zoom-slider" min="12" max="200" step="1" value="24" oninput="onVCSlider(this.value)">
+        <input type="range" class="vc-zoom-slider" id="vc-zoom-slider" min="1" max="16" step="1" value="8" oninput="onVCSlider(this.value)">
         <span class="vc-zoom-val" id="vc-zoom-val">2H</span>
         <span style="font-size:11px;color:var(--text3)">← 스크롤 →</span>
       </div>
@@ -1503,41 +1503,63 @@ function isEDT() {
 // 멀티페인 차트 헬퍼
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 let vcPaneVC = null, vcPaneVV = null, vcPaneOBV = null;
-let vcRangePoints = 24;
+let vcZoomLevel = 4; // 기본 2H (16시간 전체 기준 8배)
+let vcTotalSlots = 192; // 전체 시간축 슬롯 수 (16시간 × 12)
 
-function pointsToLabel(pts) {
-  if (pts <= 12)  return '1H';
-  if (pts <= 24)  return '2H';
-  if (pts <= 48)  return '4H';
-  if (pts <= 96)  return '8H';
-  if (pts <= 192) return '1D';
-  return 'ALL';
-}
+// 시간범위 → zoom 레벨 변환 (전체 16시간 기준)
+const VC_RANGE_ZOOM = { '2h': 8, '4h': 4, '8h': 2, '1d': 1, 'all': 0.5 };
+const VC_RANGE_LABEL = { '2h': '2H', '4h': '4H', '8h': '8H', '1d': '1D', 'all': 'ALL' };
 
 function setVCRange(range) {
-  const map = { '2h':24, '4h':48, '8h':96, '1d':192, 'all':200 };
-  vcRangePoints = map[range] || 24;
-  const sl = document.getElementById('vc-zoom-slider');
-  if (sl) sl.value = Math.min(vcRangePoints, 200);
+  vcZoomLevel = VC_RANGE_ZOOM[range] || 4;
   const lbl = document.getElementById('vc-zoom-val');
-  if (lbl) lbl.textContent = range.toUpperCase();
+  if (lbl) lbl.textContent = VC_RANGE_LABEL[range] || range.toUpperCase();
+  // 슬라이더 동기화 (zoom 0.5~8 → slider 1~16으로 매핑)
+  const sl = document.getElementById('vc-zoom-slider');
+  if (sl) sl.value = vcZoomLevel * 2;
   ['2h','4h','8h','1d','all'].forEach(r => {
     const btn = document.getElementById('vcrange-' + r);
     if (btn) btn.className = 'vc-range-btn' + (r === range ? ' active' : '');
   });
-  renderVCChart();
+  updateVCZoom();
 }
 
 function onVCSlider(val) {
-  vcRangePoints = parseInt(val);
-  // 가장 가까운 버튼 하이라이트 해제 (커스텀 모드)
+  vcZoomLevel = parseFloat(val) / 2; // slider 1~16 → zoom 0.5~8
   const lbl = document.getElementById('vc-zoom-val');
-  if (lbl) lbl.textContent = pointsToLabel(vcRangePoints);
+  if (lbl) lbl.textContent = vcZoomLevel.toFixed(1) + '×';
   ['2h','4h','8h','1d','all'].forEach(r => {
     const btn = document.getElementById('vcrange-' + r);
     if (btn) btn.className = 'vc-range-btn';
   });
-  renderVCChart();
+  updateVCZoom();
+}
+
+// ── 확대/스크롤만 조정 (차트 재렌더 없음) ──
+function updateVCZoom() {
+  const wrap = document.getElementById('vc-multipane-wrap');
+  const inner = document.getElementById('vc-multipane-inner');
+  if (!wrap || !inner) return;
+
+  const baseW = wrap.clientWidth || window.innerWidth - 56;
+  const newW = Math.round(baseW * vcZoomLevel);
+  inner.style.width = newW + 'px';
+
+  // 현재 시간 위치 계산 → 화면 중앙에 오도록 스크롤
+  const nowKST = new Date();
+  const nowKSTStr = nowKST.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Seoul' });
+  const PRE_START_KST = isEDT() ? 17 : 18;
+  const [nowH, nowM] = nowKSTStr.split(':').map(Number);
+  const nowMinFromStart = (nowH * 60 + nowM) - (PRE_START_KST * 60);
+  const nowRatio = Math.max(0, Math.min(1, nowMinFromStart / (vcTotalSlots * 5)));
+
+  // 현재 시간이 화면 중앙에 오도록
+  const nowPx = newW * nowRatio;
+  const scrollTarget = Math.max(0, nowPx - baseW / 2);
+
+  requestAnimationFrame(() => {
+    wrap.scrollLeft = scrollTarget;
+  });
 }
 
 function syncVCPanes(scrollLeft) {
@@ -1548,10 +1570,9 @@ function destroyVCPanes() {
   if (vcPaneVC)  { try { vcPaneVC.destroy(); }  catch(_){} vcPaneVC  = null; }
   if (vcPaneVV)  { try { vcPaneVV.destroy(); }  catch(_){} vcPaneVV  = null; }
   if (vcPaneOBV) { try { vcPaneOBV.destroy(); } catch(_){} vcPaneOBV = null; }
-  // canvas 재생성
   [['vc-pane-vc','vc-pane-vc-wrap'],['vc-pane-vv','vc-pane-vv-wrap'],['vc-pane-obv','vc-pane-obv-wrap']].forEach(([canvasId, wrapId]) => {
     const wrapEl = document.getElementById(wrapId);
-    if (wrapEl) wrapEl.innerHTML = `<canvas id="${canvasId}" style="position:absolute;top:0;left:0;width:100%;height:100%"></canvas>`;
+    if (wrapEl) wrapEl.innerHTML = `<canvas id="${canvasId}"></canvas>`;
   });
 }
 
@@ -1572,10 +1593,10 @@ function renderVCChart() {
     return;
   }
 
-  // ── 전체 고정 시간축: KST 17:00(EDT)/18:00(EST) ~ +16시간 (5분 간격, 192포인트) ──
-  const PRE_START_KST = isEDT() ? 17 : 18; // 프리마켓 시작 KST 시
-  const TOTAL_SLOTS = 192; // 16시간 × 12포인트/시간
-  const PX_PER_POINT = 14; // 포인트당 픽셀
+  // ── 전체 고정 시간축 ──
+  const PRE_START_KST = isEDT() ? 17 : 18;
+  const TOTAL_SLOTS = 192;
+  vcTotalSlots = TOTAL_SLOTS;
 
   const fullAxis = [];
   for (let i = 0; i < TOTAL_SLOTS; i++) {
@@ -1585,7 +1606,7 @@ function renderVCChart() {
     fullAxis.push(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`);
   }
 
-  // 데이터 매핑 (vcHistory 전체 기준)
+  // 데이터 매핑
   const dataMap = {};
   vcHistory.forEach(h => { dataMap[h.time] = h; });
 
@@ -1594,7 +1615,7 @@ function renderVCChart() {
   const charmD = fullAxis.map(t => dataMap[t]?.charm ?? null);
   const obvD   = fullAxis.map(t => dataMap[t]?.obv != null ? dataMap[t].obv / 1e6 : null);
 
-  // VV 누적 (벡터 누적): 개장 시 리셋
+  // VV 누적 (개장 시 리셋)
   const openKST = isEDT() ? '22:30' : '23:30';
   let vvCum = 0;
   const vvD = fullAxis.map(t => {
@@ -1604,45 +1625,12 @@ function renderVCChart() {
     return dataMap[t] != null ? vvCum : null;
   });
 
-  // 현재 KST 시간 → 정시 기준 뷰포트 계산
-  const nowKST = new Date();
-  const nowKSTStr = nowKST.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'Asia/Seoul' });
-  const nowH = parseInt(nowKSTStr.split(':')[0]);
-  const nowM = parseInt(nowKSTStr.split(':')[1]);
-
-  // 뷰포트 시간 범위 (시간 단위)
-  const viewHours = vcRangePoints / 12;
-  const halfHours = Math.floor(viewHours / 2);
-
-  // 뷰포트 시작 정시 계산
-  // 현재 기준 -halfHours가 프리마켓 시작보다 이전이면 → 시작점 고정
-  let startH;
-  const candidateStart = nowH - halfHours + (nowM >= 30 ? 1 : 0);
-  if (candidateStart < PRE_START_KST) {
-    startH = PRE_START_KST; // 17:00(EDT) or 18:00(EST) 고정
-  } else {
-    startH = candidateStart;
-  }
-
-  const startStr = `${String(((startH % 24) + 24) % 24).padStart(2,'0')}:00`;
-  let startIdx = fullAxis.findIndex(t => t === startStr);
-  if (startIdx < 0) startIdx = 0;
-
-  const viewW = vcRangePoints * PX_PER_POINT;
-  const scrollTarget = Math.max(0, startIdx * PX_PER_POINT);
-
-  // 포인트당 고정 픽셀 너비
+  // ── inner 너비를 responsive하게 설정 ──
   const wrap = document.getElementById('vc-multipane-wrap');
-  const baseW = wrap ? (wrap.clientWidth || window.innerWidth - 56) : 800;
-  // OI 차트와 동일 방식: 기본 2배로 잡아서 항상 스크롤 생성
-  // vcRangePoints 기준 픽셀이 baseW×2보다 크면 그걸 사용
-  const chartW = Math.max(baseW * 2, TOTAL_SLOTS * PX_PER_POINT);
-
-  // inner 컨테이너 너비 고정
   const inner = document.getElementById('vc-multipane-inner');
+  const baseW = wrap ? (wrap.clientWidth || window.innerWidth - 56) : 800;
+  const chartW = Math.round(baseW * vcZoomLevel);
   if (inner) inner.style.width = chartW + 'px';
-
-  // 각 페인 wrap div 너비 고정
   ['vc-pane-vc-wrap','vc-pane-vv-wrap','vc-pane-obv-wrap'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.width = chartW + 'px';
@@ -1682,7 +1670,7 @@ function renderVCChart() {
   });
 
   const commonOpts = (color, fmtCb) => ({
-    responsive: false,
+    responsive: true,
     maintainAspectRatio: false,
     animation: false,
     interaction: { mode: 'index', intersect: false },
@@ -1715,19 +1703,13 @@ function renderVCChart() {
 
   destroyVCPanes();
 
-  // canvas 크기 직접 지정 (responsive:false이므로 필수)
   const PANE_H = 220;
-  ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { el.width = chartW; el.height = PANE_H; }
-  });
 
   // 페인1: Vanna + Charm
   const cvEl = document.getElementById('vc-pane-vc');
   if (cvEl) {
     const opts = commonOpts('#8b949e', item => `${item.dataset.label}: ${mFmt(item.parsed.y)}`);
     opts.scales.y.ticks.callback = mFmt;
-    opts.width = chartW; opts.height = PANE_H;
     vcPaneVC = new Chart(cvEl, {
       type: 'line', data: {
         labels,
@@ -1808,13 +1790,8 @@ function renderVCChart() {
   // 신호등 업데이트
   updateVCSignalBar(vcHistory.slice(-5));
 
-  // 현재 시간 기준 뷰포트로 스크롤 (차트 렌더 완료 후)
-  if (wrap) {
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      wrap.scrollLeft = scrollTarget;
-      console.log(`[VCChart] scrollTarget=${scrollTarget} chartW=${chartW} wrapW=${wrap.clientWidth} scrollLeft=${wrap.scrollLeft}`);
-    }));
-  }
+  // 차트 렌더 완료 후 zoom/스크롤 적용
+  requestAnimationFrame(() => updateVCZoom());
 }
 
 function updateVCSignalBar(slice) {
