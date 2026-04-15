@@ -1093,7 +1093,7 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
   // Greek 힘의 균형
   const force = calcForceBalance(vc, currentD, vixVal, vvixVal);
   renderForceSidebar(force);
-  renderVCChart();
+  requestAnimationFrame(() => renderVCChart());
 }
 
 function jlScroll0(dir) {
@@ -1542,20 +1542,26 @@ function syncVCPanes(scrollLeft) {
 }
 
 function destroyVCPanes() {
-  if (vcPaneVC)  { vcPaneVC.destroy();  vcPaneVC  = null; }
-  if (vcPaneVV)  { vcPaneVV.destroy();  vcPaneVV  = null; }
-  if (vcPaneOBV) { vcPaneOBV.destroy(); vcPaneOBV = null; }
-  // canvas 재생성 (destroy 후 오염 방지)
+  if (vcPaneVC)  { try { vcPaneVC.destroy(); }  catch(_){} vcPaneVC  = null; }
+  if (vcPaneVV)  { try { vcPaneVV.destroy(); }  catch(_){} vcPaneVV  = null; }
+  if (vcPaneOBV) { try { vcPaneOBV.destroy(); } catch(_){} vcPaneOBV = null; }
+  // canvas 재생성 — DOM에 있는 경우만
   ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      const wrap = el.parentElement;
-      wrap.innerHTML = `<canvas id="${id}"></canvas>`;
+    if (el && el.parentElement) {
+      const height = el.parentElement.style.height || '220px';
+      el.parentElement.innerHTML = `<canvas id="${id}" style="height:${height}"></canvas>`;
     }
   });
 }
 
 function renderVCChart() {
+  // DOM이 아직 준비 안 됐으면 재시도
+  if (!document.getElementById('vc-pane-vc')) {
+    setTimeout(renderVCChart, 50);
+    return;
+  }
+
   if (vcHistory.length === 0) {
     const bar = document.getElementById('vc-signal-bar');
     if (bar) {
