@@ -1580,7 +1580,21 @@ function renderVCChart() {
   const vannaD  = slice.map(h => h.vanna);
   const charmD  = slice.map(h => h.charm);
   const vvD     = slice.map(h => h.vv   ?? null);
-  const obvD    = slice.map(h => h.obv  != null ? h.obv / 1e6 : null); // 단위: 백만주
+  const obvD    = slice.map(h => h.obv  != null ? h.obv / 1e6 : null);
+
+  // 포인트당 고정 픽셀 너비 (5분봉 1개 = 12px, 최소 화면 너비 이상)
+  const PX_PER_POINT = 12;
+  const wrap = document.getElementById('vc-multipane-wrap');
+  const wrapMinW = wrap ? wrap.clientWidth : 600;
+  const chartW = Math.max(wrapMinW, slice.length * PX_PER_POINT);
+  // 각 페인 내부 div 너비 고정
+  ['vc-pane-vc','vc-pane-vv','vc-pane-obv'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement) {
+      el.parentElement.style.width = chartW + 'px';
+      el.style.width = chartW + 'px';
+    }
+  });
 
   const mFmt = v => {
     if (v == null) return '';
@@ -1720,6 +1734,9 @@ function renderVCChart() {
 
   // 신호등 업데이트
   updateVCSignalBar(slice);
+
+  // 최신 데이터(오른쪽 끝)로 스크롤
+  if (wrap) requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; });
 }
 
 function updateVCSignalBar(slice) {
