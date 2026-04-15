@@ -1291,7 +1291,7 @@ export default {
       if (vixCronHistory.length > 0 && vixCronHistory[0]?._date !== todayEST) vixCronHistory = [];
     } catch (_) {}
 
-    // VIX 현재가 조회
+    // VIX 현재가 조회 (MD App → Yahoo 폴백)
     let vixNow = null;
     try {
       const mdR = await fetch(
@@ -1308,7 +1308,22 @@ export default {
         }
       }
     } catch (e) {
-      console.warn('[Cron] VIX fetch failed:', e.message);
+      console.warn('[Cron] VIX MD failed:', e.message);
+    }
+
+    // Yahoo 폴백
+    if (vixNow == null) {
+      try {
+        const yR = await fetch(
+          `https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1m&range=1d`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) }
+        );
+        const yJ = await yR.json();
+        const meta = yJ?.chart?.result?.[0]?.meta;
+        if (meta?.regularMarketPrice) vixNow = meta.regularMarketPrice;
+      } catch (e) {
+        console.warn('[Cron] VIX Yahoo fallback failed:', e.message);
+      }
     }
 
     // VIX velocity (VV): 현재 - 5분 전 / 5 (pt/min)
@@ -1397,7 +1412,12 @@ export default {
             if (stored) history = JSON.parse(stored);
             if (history.length > 0 && history[0]?._date !== todayEST) history = [];
 
-            history.push(newPoint);
+            // 같은 시간 중복 방지
+            if (history.length > 0 && history[history.length - 1].time === timeStr) {
+              history[history.length - 1] = newPoint; // 덮어쓰기
+            } else {
+              history.push(newPoint);
+            }
             if (history.length > 200) history = history.slice(-200);
 
             await env.CACHE.put(histKey, JSON.stringify(history), { expirationTtl: 86400 });
