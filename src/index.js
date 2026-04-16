@@ -591,60 +591,11 @@ async function compute0DTE(env, symbol) {
   const spotPrice = cboeJson.data.current_price;
   const allOptions = cboeJson.data.options;
 
-  // 2. 0DTE 날짜 결정 — 한국시간(KST) 기준
-  // KST 오전 9시 이후 → 그날 미국 장 날짜로 전환
-  // KST 오전 9시 = UTC 00:00
-  // 예) 한국 월요일 09:00 → 미국 월요일 0DTE 표시
-  //     한국 월요일 08:59 → 미국 이전 거래일(금요일) 0DTE 표시
-  const nowKST = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  // 2. 0DTE 날짜 결정 — EST 기준 (데이터는 항상 EST 기준으로 처리)
   const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-
-  function getTargetTradingDay(kst) {
-    const h   = kst.getHours();
-    const dow = kst.getDay(); // 0=일, 1=월...6=토
-    const d   = new Date(kst);
-
-    // 토요일
-    if (dow === 6) {
-      if (h < 9) {
-        d.setDate(d.getDate() - 1); // 전날(금요일)
-      } else {
-        d.setDate(d.getDate() + 2); // 다음 월요일
-      }
-      return d;
-    }
-
-    // 일요일 → 항상 다음 월요일
-    if (dow === 0) {
-      d.setDate(d.getDate() + 1);
-      return d;
-    }
-
-    // 월요일 → 항상 오늘(월요일)
-    if (dow === 1) {
-      return d;
-    }
-
-    // 화~금: 09:00 전이면 이전 거래일
-    if (h < 9) {
-      d.setDate(d.getDate() - 1);
-      while (d.getDay() === 0 || d.getDay() === 6) {
-        d.setDate(d.getDate() - 1);
-      }
-    }
-    // 09:00 이후 → 오늘 그대로
-    return d;
-  }
-
-  const targetDay = getTargetTradingDay(nowKST);
-
-  // KST 날짜로 미리보기 여부 판단
-  const kstDateStr    = nowKST.toLocaleDateString('en-CA');
-  const targetDateStr = targetDay.toLocaleDateString('en-CA');
-  const isPreview     = kstDateStr !== targetDateStr;
-
-  const todayKey = `${String(targetDay.getFullYear()).slice(2)}${String(targetDay.getMonth()+1).padStart(2,'0')}${String(targetDay.getDate()).padStart(2,'0')}`;
-  const todayISO = targetDay.toLocaleDateString('en-CA');
+  const todayISO = nowEST.toLocaleDateString('en-CA');
+  const todayKey = `${todayISO.slice(2,4)}${todayISO.slice(5,7)}${todayISO.slice(8,10)}`;
+  const isPreview = false; // EST 기준이므로 미리보기 개념 불필요
 
   const parsed = allOptions.filter(o => {
     const m = o.option.trim().match(/(\d{6})[CP]/);
@@ -1510,8 +1461,8 @@ export default {
 
     // VIX velocity (VV): 현재 - 5분 전 / 5 (pt/min)
     let vv = null;
-    const nowKST2 = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
-    const timeStr = `${String(nowKST2.getHours()).padStart(2,'0')}:${String(nowKST2.getMinutes()).padStart(2,'0')}`;
+    // timeStr은 EST 기준으로 저장 — 화면 표시 시 KST 변환은 프론트에서 처리
+    const timeStr = `${String(nowEST.getHours()).padStart(2,'0')}:${String(nowEST.getMinutes()).padStart(2,'0')}`;
     if (vixNow != null) {
       // 5분 전 포인트 찾기 (최근 2개 포인트 이상이면 계산)
       if (vixCronHistory.length >= 1) {
