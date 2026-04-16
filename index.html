@@ -734,11 +734,10 @@ async function load0DTE() {
   current0DTESym = sym;
   setStatus('updating');
   try {
-    // 병렬: 서버 0DTE + 가격 + VIX (+ 첫 로드 시 시계열 로드)
+    // 병렬: 서버 0DTE (+ 첫 로드 시 시계열 로드)
+    // 현재가/VIX는 loadQuote()에서 30초마다 별도 갱신
     const fetchList = [
       fetch(`${PROXY}/api/gex0dte?symbol=${sym}`).then(r => r.json()),
-      fetch(`${PROXY}/api/price?symbol=${sym}`).then(r => r.json()),
-      fetch(`${PROXY}/api/vix?symbols=VIX,VVIX`).then(r => r.json()),
     ];
     // vcHistory가 비어있으면 KV 시계열 로드
     const isFirstLoad = vcHistory.length === 0;
@@ -746,13 +745,12 @@ async function load0DTE() {
       fetchList.push(fetch(`${PROXY}/api/vc_history?symbol=${sym}`).then(r => r.json()));
     }
     const results = await Promise.all(fetchList);
-    const [d0, priceJson, vixJson] = results;
+    const d0 = results[0];
 
     // KV 시계열 로드 처리
-    if (isFirstLoad && results[3] && !results[3].error) {
-      const kvHistory = results[3].history || [];
+    if (isFirstLoad && results[1] && !results[1].error) {
+      const kvHistory = results[1].history || [];
       if (kvHistory.length > 0) {
-        // KV 데이터를 vcHistory 형식으로 변환 (vv/obv 필드 포함)
         vcHistory = kvHistory.map(p => ({
           time:     p.time,
           vanna:    p.vanna,
@@ -769,9 +767,9 @@ async function load0DTE() {
 
     if (d0.error) throw new Error(d0.error);
 
-    vixVal  = vixJson.VIX?.price ?? null;
-    vvixVal = vixJson.VVIX?.price ?? null;
-    window._lastVixJson = vixJson; // render0DTE 템플릿에서 참조용
+    // 현재가/VIX는 loadQuote()에서 관리 — 여기서는 캐시값 사용
+    const priceJson = window._lastPriceJson || {};
+    const vixJson   = window._lastVixJson   || {};
 
     // VV 계산: priceHistory에서 5분 전 VIX와 현재 VIX 비교
     let vvNow = null;
@@ -957,8 +955,9 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
 
   <div class="vc-panel-wrap" style="flex-direction:column">
     <div id="greek-metrics-row" style="display:flex;gap:10px;flex-wrap:wrap;padding:14px 20px 0;border-bottom:1px solid var(--border)">
-      <div class="greek-metric-card" id="gmc-vanna"><div class="gmc-header"><span class="gmc-dot" style="background:#bc8cff"></span><span class="gmc-name">Vanna</span><span class="gmc-signal" id="gmc-vanna-signal">—</span></div><div class="gmc-value" id="gmc-vanna-val">—</div><div class="gmc-desc" id="gmc-vanna-desc">갱신 후 표시</div></div>
-      <div class="greek-metric-card" id="gmc-charm"><div class="gmc-header"><span class="gmc-dot" style="background:#58a6ff"></span><span class="gmc-name">Charm</span><span class="gmc-signal" id="gmc-charm-signal">—</span></div><div class="gmc-value" id="gmc-charm-val">—</div><div class="gmc-desc" id="gmc-charm-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" id="gmc-vanna"><div class="gmc-header"><span class="gmc-dot" id="gmc-vanna-dot"></span><span class="gmc-name">Vanna</span><span class="gmc-signal" id="gmc-vanna-signal">—</span></div><div class="gmc-value" id="gmc-vanna-val">—</div><div class="gmc-desc" id="gmc-vanna-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" id="gmc-charm"><div class="gmc-header"><span class="gmc-dot" id="gmc-charm-dot"></span><span class="gmc-name">Charm</span><span class="gmc-signal" id="gmc-charm-signal">—</span></div><div class="gmc-value" id="gmc-charm-val">—</div><div class="gmc-desc" id="gmc-charm-desc">갱신 후 표시</div></div>
+      <div class="greek-metric-card" id="gmc-gex"><div class="gmc-header"><span class="gmc-dot" id="gmc-gex-dot"></span><span class="gmc-name">Local GEX</span><span class="gmc-signal" id="gmc-gex-signal">—</span></div><div class="gmc-value" id="gmc-gex-val">—</div><div class="gmc-desc" id="gmc-gex-desc">갱신 후 표시</div></div>
       <div class="greek-metric-card" style="flex:1;min-width:160px" id="gmc-dominant"><div class="gmc-header"><span class="gmc-name" style="color:var(--text2)">◈ 지배 Greek</span></div><div class="gmc-value" id="gmc-dominant-val" style="font-size:13px">—</div><div class="gmc-desc" id="gmc-flip-desc">—</div></div>
     </div>
     <div class="vc-chart-area" style="width:100%;border-right:none">
@@ -1104,13 +1103,76 @@ function jlScroll0(dir) {
   if (el) el.scrollBy({ top: parseInt(dir) * 72, behavior: 'smooth' });
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// /api/quote 통합 호출 — 현재가 + VIX + VVIX + VV
+// 30초마다 KV읽기 ↔ 직접API호출 교대
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+let _quoteUseDirect = false; // false=KV읽기(캐시), true=직접API
+
+async function loadQuote() {
+  const sym = document.getElementById('sym-select-0dte')?.value || 'SPY';
+  try {
+    // 교대: false=캐시포함(Workers가 KV우선), true=강제갱신
+    const url = _quoteUseDirect
+      ? `${PROXY}/api/quote?symbol=${sym}&fresh=1`
+      : `${PROXY}/api/quote?symbol=${sym}`;
+    _quoteUseDirect = !_quoteUseDirect;
+
+    const data = await fetch(url).then(r => r.json());
+    if (data.error) return;
+
+    // 현재가 업데이트
+    const newSpot = data.price;
+    const marketState = data.marketState || 'REGULAR';
+    window._lastPriceJson = data;
+
+    // VIX/VVIX 업데이트
+    vixVal  = data.VIX?.price  ?? null;
+    vvixVal = data.VVIX?.price ?? null;
+    window._lastVixJson = { VIX: data.VIX, VVIX: data.VVIX };
+
+    // VV 업데이트
+    if (data.vv != null && vcHistory.length > 0) {
+      // 현재 포인트에 vv 업데이트
+      vcHistory[vcHistory.length - 1].vv = data.vv;
+    }
+
+    // 다이버전스 감지 (기존 로직 유지)
+    if (vixVal != null) {
+      vixPriceHistory.push(vixVal);
+      if (vixPriceHistory.length > 120) vixPriceHistory.shift();
+      const vixDiv = detectVIXDivergence(vixPriceHistory, 'VIX');
+      pushDivergenceEvent(vixDiv, 'VIX');
+    }
+    if (vvixVal != null) {
+      vvixPriceHistory.push(vvixVal);
+      if (vvixPriceHistory.length > 120) vvixPriceHistory.shift();
+      const vvixDiv = detectVIXDivergence(vvixPriceHistory, 'VVIX');
+      pushDivergenceEvent(vvixDiv, 'VVIX');
+    }
+
+    updateVIXMetrics();
+
+    // 현재가 메트릭 카드 업데이트 (spot)
+    const spotEl = document.getElementById('metric-spot-0dte');
+    if (spotEl && newSpot) {
+      const stateLabel = marketState === 'PRE' ? 'Pre' : marketState === 'POST' ? 'Post' : 'Reg';
+      const prevChange = data.prevChange;
+      const pctStr = prevChange != null ? ` ${prevChange > 0 ? '+' : ''}${prevChange.toFixed(2)}%` : '';
+      spotEl.querySelector('.val').textContent = `[${stateLabel}] $${newSpot.toFixed(2)}`;
+      spotEl.querySelector('.lbl').textContent = `현재가${pctStr}`;
+    }
+
+  } catch(e) { console.warn('loadQuote error:', e); }
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   // 0DTE 탭 기본: 바로 로드 + 60초 자동갱신
   load0DTE();
   auto0DTEInterval = setInterval(load0DTE, 60000);
-  // VIX/VVIX: 30초마다 갱신 (다이버전스 히스토리 누적 + 실시간 표시)
-  loadVIX();
-  setInterval(loadVIX, 30000);
+  // 현재가+VIX+VV: 30초마다 교대 방식
+  loadQuote();
+  setInterval(loadQuote, 30000);
   // 날짜 탭 만기 목록은 탭 전환 시 로드
 });
 
@@ -1460,13 +1522,19 @@ function renderGreekMetrics(force) {
 
   // ── DOM 업데이트 ──
   const set = (id, val) => { const el=document.getElementById(id); if(el) el.innerHTML=val; };
+  const setStyle = (id, prop, val) => { const el=document.getElementById(id); if(el) el.style[prop]=val; };
+
+  // dot 색상: 부호 기준 (양수=초록, 음수=빨강)
+  setStyle('gmc-vanna-dot', 'background', vanna.value >= 0 ? 'var(--green)' : 'var(--red)');
+  setStyle('gmc-charm-dot', 'background', charm.value >= 0 ? 'var(--green)' : 'var(--red)');
+  setStyle('gmc-gex-dot',   'background', gex.value   >= 0 ? 'var(--green)' : 'var(--red)');
 
   set('gmc-vanna-signal', vannaSignal);
-  set('gmc-vanna-val', `<span style="color:${vannaColor}">${vanna.value.toFixed(0)}M</span>`);
+  set('gmc-vanna-val', `<span style="color:${vannaColor}">${vanna.value >= 0 ? '+' : ''}${vanna.value.toFixed(0)}M</span>`);
   set('gmc-vanna-desc', `${vanna.dir === 'sell' ? 'VIX↑ 매도압력' : 'VIX↑ 매수압력'}${vannaArrow}${vanna.vixChange !== 0 ? ` · VIX ${vanna.vixChange>0?'+':''}${vanna.vixChange.toFixed(1)}%` : ''}`);
 
   set('gmc-charm-signal', charmSignal);
-  set('gmc-charm-val', `<span style="color:${charmColor}">${charm.value.toFixed(0)}M</span>`);
+  set('gmc-charm-val', `<span style="color:${charmColor}">${charm.value >= 0 ? '+' : ''}${charm.value.toFixed(0)}M</span>`);
   set('gmc-charm-desc', `${charm.dir === 'buy' ? '매수 드리프트' : '매도 드리프트'}${charmArrow}`);
 
   set('gmc-gex-signal', gexSignal);
@@ -1625,7 +1693,7 @@ function renderVCChart() {
     return dataMap[t] != null ? vvCum : null;
   });
 
-  // ── inner 너비를 responsive하게 설정 ──
+  // ── inner/wrap 너비 설정 (OI 차트 동일 방식) ──
   const wrap = document.getElementById('vc-multipane-wrap');
   const inner = document.getElementById('vc-multipane-inner');
   const baseW = wrap ? (wrap.clientWidth || window.innerWidth - 56) : 800;
@@ -1643,13 +1711,78 @@ function renderVCChart() {
     return sign + abs.toFixed(1) + 'M';
   };
 
-  // 세션 수직선 플러그인
+  // ── 끝점 레이블 플러그인 ──
+  const endLabelPlugin = (datasetIdx, labelFn, color) => ({
+    id: `endLabel_${datasetIdx}`,
+    afterDraw(chart) {
+      const ds = chart.data.datasets[datasetIdx];
+      if (!ds) return;
+      const data = ds.data;
+      let lastIdx = -1;
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] != null) { lastIdx = i; break; }
+      }
+      if (lastIdx < 0) return;
+      const meta = chart.getDatasetMeta(datasetIdx);
+      const pt = meta.data[lastIdx];
+      if (!pt) return;
+      const { ctx, chartArea } = chart;
+      const label = labelFn(data[lastIdx]);
+      ctx.save();
+      ctx.font = 'bold 10px monospace';
+      const tw = ctx.measureText(label).width;
+      const x = Math.min(pt.x + 4, chartArea.right - tw - 4);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(x - 2, pt.y - 8, tw + 6, 16);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#0d1117';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, x, pt.y);
+      ctx.restore();
+    }
+  });
+
+  // ── sticky y축 플러그인 (OI 차트와 동일 방식) ──
+  const stickyYPlugin = (wrapId, yColor, fmtFn) => ({
+    id: `stickyY_${wrapId}`,
+    afterDraw(chart) {
+      const w = document.getElementById(wrapId);
+      if (!w) return;
+      const yScale = chart.scales['y'];
+      if (!yScale) return;
+      const scrollX = w.scrollLeft;
+      if (scrollX <= 0) return;
+      const { ctx, chartArea, height } = chart;
+      ctx.save();
+      const axisW = yScale.right;
+      ctx.fillStyle = '#161b22';
+      ctx.fillRect(scrollX, 0, axisW, height);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = yColor;
+      ctx.font = '10px monospace';
+      yScale.ticks.forEach((tick, i) => {
+        const y = yScale.getPixelForTick(i);
+        ctx.fillText(fmtFn(tick.value), scrollX + axisW - 4, y);
+      });
+      ctx.strokeStyle = '#30363d';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(scrollX + axisW, chartArea.top);
+      ctx.lineTo(scrollX + axisW, chartArea.bottom);
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  // ── 세션 수직선 플러그인 ──
   const sessionPlugin = (labels) => ({
     id: 'sessionLine',
     afterDraw(chart) {
       const { ctx, chartArea, scales } = chart;
       if (!chartArea || !scales.x) return;
-      // 정규장 개장: ET 09:30 → KST 22:30(EDT) or 23:30(EST)
       const openKST = isEDT() ? '22:30' : '23:30';
       const openIdx = labels.findIndex(t => t >= openKST);
       if (openIdx < 0) return;
@@ -1703,13 +1836,13 @@ function renderVCChart() {
 
   destroyVCPanes();
 
-  const PANE_H = 220;
-
-  // 페인1: Vanna + Charm
+  // ── 페인1: Vanna + Charm ──
   const cvEl = document.getElementById('vc-pane-vc');
   if (cvEl) {
     const opts = commonOpts('#8b949e', item => `${item.dataset.label}: ${mFmt(item.parsed.y)}`);
     opts.scales.y.ticks.callback = mFmt;
+    const lastVanna = vannaD.filter(v=>v!=null).slice(-1)[0];
+    const lastCharm = charmD.filter(v=>v!=null).slice(-1)[0];
     vcPaneVC = new Chart(cvEl, {
       type: 'line', data: {
         labels,
@@ -1719,59 +1852,60 @@ function renderVCChart() {
         ]
       },
       options: opts,
-      plugins: [sessionPlugin(labels)]
+      plugins: [
+        sessionPlugin(labels),
+        endLabelPlugin(0, v => `Vanna: ${mFmt(v)}`, '#bc8cff'),
+        endLabelPlugin(1, v => `Charm: ${mFmt(v)}`, '#58a6ff'),
+        stickyYPlugin('vc-pane-vc-wrap', '#8b949e', mFmt),
+      ]
     });
   }
 
-  // 페인2: VV (VIX Velocity 누적)
+  // ── 페인2: VV ──
   const vvEl = document.getElementById('vc-pane-vv');
   const hasVV = vvD.some(v => v != null);
   if (vvEl) {
     if (!hasVV) {
-      vvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">VV — Cron 5분 후 적재</div>';
+      vvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">VV — Cron 적재 대기</div>';
     } else {
       const opts = commonOpts('#d29922', item => `VV 누적: ${item.parsed.y?.toFixed(4) ?? '—'} pt`);
       opts.scales.y.ticks.callback = v => v?.toFixed(3);
-      opts.scales.y.grid = { color: (ctx) => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(48,54,61,.4)' };
-
+      opts.scales.y.grid = { color: ctx => ctx.tick.value === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(48,54,61,.4)' };
+      const lastVV = vvD.filter(v=>v!=null).slice(-1)[0] ?? 0;
       vcPaneVV = new Chart(vvEl, {
         type: 'line', data: {
           labels,
           datasets: [{
             label: 'VV 누적',
-            data: vvD,  // 원래값 그대로 (반전 없음)
+            data: vvD,
             segment: {
-              borderColor: ctx => {
-                const v = ctx.p1?.parsed?.y;
-                if (v == null) return '#d29922';
-                // VV 양수(VIX 상승) = 초록, 음수(VIX 하락) = 빨강
-                return v >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)';
-              }
+              borderColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)',
+              backgroundColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)',
             },
-            backgroundColor: 'transparent',
-            fill: false,
-            borderWidth: 2,
-            pointRadius: 0,
-            pointHoverRadius: 3,
-            tension: 0,
-            spanGaps: true,
+            fill: 'origin',
+            borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0, spanGaps: true,
           }]
         },
         options: opts,
-        plugins: [sessionPlugin(labels)]
+        plugins: [
+          sessionPlugin(labels),
+          endLabelPlugin(0, v => `VV: ${v >= 0 ? '+' : ''}${v?.toFixed(4)}`, lastVV >= 0 ? '#3fb950' : '#f85149'),
+          stickyYPlugin('vc-pane-vv-wrap', '#d29922', v => v?.toFixed(3)),
+        ]
       });
     }
   }
 
-  // 페인3: OBV
+  // ── 페인3: OBV ──
   const obvEl = document.getElementById('vc-pane-obv');
   const hasOBV = obvD.some(v => v != null);
   if (obvEl) {
     if (!hasOBV) {
-      obvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">OBV — Cron 5분 후 적재</div>';
+      obvEl.parentElement.innerHTML = '<div style="height:220px;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:12px">OBV — Cron 적재 대기</div>';
     } else {
       const opts = commonOpts('#3fb950', item => `OBV: ${item.parsed.y?.toFixed(1) ?? '—'}M주`);
       opts.scales.y.ticks.callback = v => v?.toFixed(0) + 'M';
+      const lastOBV = obvD.filter(v=>v!=null).slice(-1)[0] ?? 0;
       vcPaneOBV = new Chart(obvEl, {
         type: 'line', data: {
           labels,
@@ -1782,15 +1916,30 @@ function renderVCChart() {
           }]
         },
         options: opts,
-        plugins: [sessionPlugin(labels)]
+        plugins: [
+          sessionPlugin(labels),
+          endLabelPlugin(0, v => `OBV: ${v?.toFixed(1)}M`, '#3fb950'),
+          stickyYPlugin('vc-pane-obv-wrap', '#3fb950', v => v?.toFixed(0)+'M'),
+        ]
       });
     }
+  }
+
+  // 스크롤 이벤트 → 차트 재드로우 (sticky y축 갱신)
+  if (wrap) {
+    wrap._vcScrollHandler && wrap.removeEventListener('scroll', wrap._vcScrollHandler);
+    wrap._vcScrollHandler = () => {
+      if (vcPaneVC)  vcPaneVC.draw();
+      if (vcPaneVV)  vcPaneVV.draw();
+      if (vcPaneOBV) vcPaneOBV.draw();
+    };
+    wrap.addEventListener('scroll', wrap._vcScrollHandler, { passive: true });
   }
 
   // 신호등 업데이트
   updateVCSignalBar(vcHistory.slice(-5));
 
-  // 차트 렌더 완료 후 zoom/스크롤 적용
+  // zoom/스크롤 적용
   requestAnimationFrame(() => updateVCZoom());
 }
 
