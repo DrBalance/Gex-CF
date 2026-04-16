@@ -1401,7 +1401,7 @@ export default {
     const symbols = ['SPY', 'QQQ', 'IWM'];
 
     // ── VIX KV 히스토리 (VV 계산용) ──
-    // vix_history:YYYY-MM-DD → [{time, price}] 배열
+    // vix_history:YYYY-MM-DD → [{iso, price}] 배열
     const vixHistKey = `vix_cron_history:${todayEST}`;
     let vixCronHistory = [];
     try {
@@ -1459,18 +1459,17 @@ export default {
       }
     }
 
-    // VIX velocity (VV): 현재 - 5분 전 / 5 (pt/min)
+    // VIX velocity (VV): 현재 - 이전 / 경과분 (pt/min)
     let vv = null;
-    // timeStr은 EST 기준으로 저장 — 화면 표시 시 KST 변환은 프론트에서 처리
-    const timeStr = `${String(nowEST.getHours()).padStart(2,'0')}:${String(nowEST.getMinutes()).padStart(2,'0')}`;
+    const nowIso = new Date().toISOString(); // UTC ISO — 저장 기준
     if (vixNow != null) {
-      // 5분 전 포인트 찾기 (최근 2개 포인트 이상이면 계산)
       if (vixCronHistory.length >= 1) {
         const prev = vixCronHistory[vixCronHistory.length - 1];
-        vv = parseFloat(((vixNow - prev.price) / 5).toFixed(4));
+        const elapsedMin = (new Date(nowIso) - new Date(prev.iso)) / 60000 || 5;
+        vv = parseFloat(((vixNow - prev.price) / elapsedMin).toFixed(4));
       }
-      // 현재 VIX 히스토리에 추가
-      vixCronHistory.push({ time: timeStr, price: vixNow, _date: todayEST });
+      // 현재 VIX 히스토리에 추가 (iso 키로 저장)
+      vixCronHistory.push({ iso: nowIso, price: vixNow, _date: todayEST });
       if (vixCronHistory.length > 200) vixCronHistory = vixCronHistory.slice(-200);
       try {
         await env.CACHE.put(vixHistKey, JSON.stringify(vixCronHistory), { expirationTtl: 86400 });
@@ -1524,18 +1523,72 @@ export default {
       try {
         const data = await compute0DTE(env, sym);
 
-        // 1. gex0dte 현재 스냅샷 저장
+        // 1. 이전 스냅샷 읽기 → callOIDiff / putOIDiff 계산
+        const snapKey = `gex0dte:${sym}`;
+        let prevSnap = null;
         try {
-          await env.CACHE.put(`gex0dte:${sym}`, JSON.stringify(data), { expirationTtl: 600 });
+          const prevRaw = await env.CACHE.get(snapKey);
+          if (prevRaw) prevSnap = JSON.parse(prevRaw);
+        } catch (_) {}
+
+        if (prevSnap && Array.isArray(prevSnap.strikes) && Array.isArray(data.strikes)) {
+          const prevMap = {};
+          prevSnap.strikes.forEach(s => { prevMap[s.strike] = s; });
+          data.strikes.forEach(s => {
+            const p = prevMap[s.strike];
+            s.callOIDiff = p != null ? s.callOI - p.callOI : 0;
+            s.putOIDiff  = p != null ? s.putOI  - p.putOI  : 0;
+          });
+        } else {
+          // 첫 실행 — 증감 0으로 초기화
+          data.strikes.forEach(s => { s.callOIDiff = 0; s.putOIDiff = 0; });
+        }
+
+        // 2. gex0dte 현재 스냅샷 저장 (증감 포함)
+        try {
+          await env.CACHE.put(snapKey, JSON.stringify(data), { expirationTtl: 600 });
         } catch (kvErr) {
           console.warn(`[Cron] KV put skipped for ${sym}: ${kvErr.message}`);
         }
 
-        // 2. vc_history 시계열 append (프리마켓 04:00 ~ 장 마감 20:00까지)
+        // 3. quote:SPY KV 저장 (1분 Cron — 현재가+VIX+VVIX+VV+OBV)
+        // SPY만 저장 (클라이언트 보정 딜레이 계산용 computedAt 포함)
+        if (sym === 'SPY') {
+          // VVIX 별도 조회
+          let vvixNow = null;
+          try {
+            const vvR = await fetch(`https://api.marketdata.app/v1/indices/quotes/VVIX/`, {
+              headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' },
+              signal: AbortSignal.timeout(6000),
+            });
+            if (vvR.ok) {
+              const vvJ = await vvR.json();
+              if (vvJ.s === 'ok' && Array.isArray(vvJ.last)) vvixNow = vvJ.last[0] ?? null;
+            }
+          } catch (e) { console.warn('[Cron] VVIX failed:', e.message); }
+
+          const quotePayload = {
+            spot:        data.spotPrice ?? null,
+            vix:         vixNow         != null ? parseFloat(vixNow.toFixed(2))   : null,
+            vvix:        vvixNow        != null ? parseFloat(vvixNow.toFixed(2))  : null,
+            vv:          vv             != null ? parseFloat(vv.toFixed(4))       : null,
+            obv:         obvNow         != null ? Math.round(obvNow)              : null,
+            obvSlope:    obvSlope       != null ? Math.round(obvSlope)            : null,
+            computedAt:  nowIso,  // UTC ISO — 클라이언트 보정 딜레이 계산 기준
+          };
+          try {
+            await env.CACHE.put('quote:SPY', JSON.stringify(quotePayload), { expirationTtl: 120 });
+            console.log(`[Cron] quote:SPY saved: spot=${quotePayload.spot} vix=${quotePayload.vix} computedAt=${nowIso}`);
+          } catch (kvErr) {
+            console.warn(`[Cron] quote:SPY put skipped: ${kvErr.message}`);
+          }
+        }
+
+        // 4. vc_history 시계열 append (UTC ISO 기준, 프리마켓 04:00 ~ 장 마감 20:00 EST)
         if (estHour >= 4 && estHour < 20) {
           const histKey = `vc_history:${sym}:${todayEST}`;
           const newPoint = {
-            time:      timeStr,
+            iso:       nowIso,   // UTC ISO — 클라이언트에서 toKST() 변환
             vanna:     data.vanna     != null ? parseFloat(data.vanna.toFixed(2))     : null,
             charm:     data.charm     != null ? parseFloat(data.charm.toFixed(2))     : null,
             vix:       vixNow         != null ? parseFloat(vixNow.toFixed(2))         : null,
@@ -1552,21 +1605,16 @@ export default {
             if (stored) history = JSON.parse(stored);
             if (history.length > 0 && history[0]?._date !== todayEST) history = [];
 
-            // 기존 데이터 중복 제거 (같은 time 중 마지막 것만 유지)
+            // 중복 제거: 같은 iso 덮어쓰기
             const seen = new Map();
-            history.forEach(p => seen.set(p.time, p));
-            history = Array.from(seen.values());
-
-            // 같은 시간 중복 방지
-            if (history.length > 0 && history[history.length - 1].time === timeStr) {
-              history[history.length - 1] = newPoint; // 덮어쓰기
-            } else {
-              history.push(newPoint);
-            }
+            history.forEach(p => seen.set(p.iso, p));
+            seen.set(newPoint.iso, newPoint);
+            history = Array.from(seen.values())
+              .sort((a, b) => new Date(a.iso) - new Date(b.iso));
             if (history.length > 200) history = history.slice(-200);
 
             await env.CACHE.put(histKey, JSON.stringify(history), { expirationTtl: 86400 });
-            console.log(`[Cron] ${sym} vc_history appended: ${timeStr} vix=${vixNow} vv=${vv} obv=${obvNow} (${history.length}pts)`);
+            console.log(`[Cron] ${sym} vc_history appended: ${nowIso} vix=${vixNow} vv=${vv} obv=${obvNow} (${history.length}pts)`);
           } catch (kvErr) {
             console.warn(`[Cron] vc_history put skipped for ${sym}: ${kvErr.message}`);
           }
