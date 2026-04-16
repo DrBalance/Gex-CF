@@ -1242,6 +1242,174 @@ async function handleBreadth(url, env) {
   }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// /api/quote — 현재가 + VIX + VVIX + VV 통합 (30초 KV 캐시)
+// 사용자 수 무관하게 MD App 호출은 30초에 1번으로 고정
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+async function handleQuote(url, env) {
+  const symbol = (url.searchParams.get('symbol') || 'SPY').toUpperCase();
+  const cacheKey = `quote:${symbol}`;
+  const TTL = 30; // 30초 캐시
+
+  // KV 캐시 확인
+  try {
+    const cached = await env.CACHE.get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      parsed._cached = true;
+      return json(parsed);
+    }
+  } catch (_) {}
+
+  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const estHour = nowEST.getHours() + nowEST.getMinutes() / 60;
+  const estDow = nowEST.getDay();
+  const isWeekday = estDow >= 1 && estDow <= 5;
+  const todayStr = nowEST.toLocaleDateString('en-CA');
+  const STALE_SECONDS = 120;
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  // ── 현재가 조회 ──
+  let price = null, marketState = 'REGULAR', priceLabel = 'regular';
+  let preMarketPrice = null, postMarketPrice = null;
+  let preMarketChangePercent = null, postMarketChangePercent = null;
+
+  try {
+    const mdR = await fetch(
+      `https://api.marketdata.app/v1/stocks/quotes/${symbol}/`,
+      { headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) }
+    );
+    if (mdR.ok) {
+      const mdJ = await mdR.json();
+      if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
+        price = mdJ.last[0];
+        const estHourNow = estHour;
+        if (!isWeekday || estHourNow < 4 || estHourNow >= 20) {
+          marketState = 'CLOSED';
+        } else if (estHourNow >= 4 && estHourNow < 9.5) {
+          marketState = 'PRE'; priceLabel = 'preMarket'; preMarketPrice = price;
+        } else if (estHourNow >= 9.5 && estHourNow < 16) {
+          marketState = 'REGULAR';
+        } else {
+          marketState = 'POST'; priceLabel = 'postMarket'; postMarketPrice = price;
+        }
+      }
+    }
+  } catch (e) { console.warn('[Quote] price MD failed:', e.message); }
+
+  // Yahoo 폴백
+  if (price == null) {
+    try {
+      const yR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`,
+        { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
+      const yJ = await yR.json();
+      const meta = yJ?.chart?.result?.[0]?.meta;
+      if (meta) {
+        marketState = meta.marketState || 'REGULAR';
+        price = marketState === 'PRE' ? meta.preMarketPrice : marketState === 'POST' ? meta.postMarketPrice : meta.regularMarketPrice;
+        priceLabel = marketState === 'PRE' ? 'preMarket' : marketState === 'POST' ? 'postMarket' : 'regular';
+        if (marketState === 'PRE') { preMarketPrice = price; preMarketChangePercent = meta.preMarketChangePercent ?? null; }
+        if (marketState === 'POST') { postMarketPrice = price; postMarketChangePercent = meta.postMarketChangePercent ?? null; }
+      }
+    } catch (e) { console.warn('[Quote] price Yahoo failed:', e.message); }
+  }
+
+  // prevClose
+  let prevClose = null;
+  try {
+    const stored = await env.CACHE.get(`price_prev:${symbol}`);
+    if (stored) { const obj = JSON.parse(stored); if (obj.date !== todayStr) prevClose = obj.price; }
+  } catch (_) {}
+  if (estHour >= 16 && marketState === 'REGULAR' && price != null) {
+    try { await env.CACHE.put(`price_prev:${symbol}`, JSON.stringify({ date: todayStr, price }), { expirationTtl: 86400 * 3 }); } catch (_) {}
+  }
+  const prevChange = (price != null && prevClose != null) ? +((price - prevClose) / prevClose * 100).toFixed(2) : null;
+
+  // ── VIX + VVIX 조회 (updatedAt 신선도 체크) ──
+  const vixResult = {};
+  for (const sym of ['VIX', 'VVIX']) {
+    let vixPrice = null;
+    try {
+      const mdR = await fetch(`https://api.marketdata.app/v1/indices/quotes/${sym}/`,
+        { headers: { 'Authorization': `Bearer ${env.MARKETDATA_TOKEN}`, 'Accept': 'application/json' }, signal: AbortSignal.timeout(6000) });
+      if (mdR.ok) {
+        const mdJ = await mdR.json();
+        if (mdJ.s === 'ok' && Array.isArray(mdJ.last) && mdJ.last[0] != null) {
+          const updatedAt = mdJ.updated?.[0] ?? null;
+          const age = updatedAt ? nowUnix - updatedAt : 9999;
+          if (age <= STALE_SECONDS) vixPrice = mdJ.last[0];
+          else console.warn(`[Quote] ${sym} stale age=${age}s`);
+        }
+      }
+    } catch (e) { console.warn(`[Quote] ${sym} MD failed:`, e.message); }
+
+    // Yahoo 폴백
+    if (vixPrice == null) {
+      try {
+        const yR = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/%5E${sym}?interval=1m&range=1d`,
+          { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
+        const yJ = await yR.json();
+        const meta = yJ?.chart?.result?.[0]?.meta;
+        if (meta?.regularMarketPrice) vixPrice = meta.regularMarketPrice;
+      } catch (e) { console.warn(`[Quote] ${sym} Yahoo failed:`, e.message); }
+    }
+
+    // prevClose
+    let vixPrev = null;
+    try {
+      const stored = await env.CACHE.get(`vix_prev:${sym}`);
+      if (stored) { const obj = JSON.parse(stored); if (obj.date !== todayStr) vixPrev = obj.price; }
+    } catch (_) {}
+    if (estHour >= 16 && vixPrice != null) {
+      try { await env.CACHE.put(`vix_prev:${sym}`, JSON.stringify({ date: todayStr, price: vixPrice }), { expirationTtl: 86400 * 3 }); } catch (_) {}
+    }
+    const pctChange = (vixPrice != null && vixPrev != null) ? +((vixPrice - vixPrev) / vixPrev * 100).toFixed(2) : null;
+    vixResult[sym] = { price: vixPrice, prevClose: vixPrev, pctChange };
+  }
+
+  // ── VV 계산 (현재 VIX - KV의 이전 VIX) ──
+  const vixNow = vixResult['VIX']?.price ?? null;
+  let vv = null;
+  try {
+    const vixHistKey = `vix_cron_history:${todayStr}`;
+    const stored = await env.CACHE.get(vixHistKey);
+    if (stored) {
+      const hist = JSON.parse(stored);
+      if (hist.length >= 1 && vixNow != null) {
+        const prev = hist[hist.length - 1];
+        const elapsedMin = (nowUnix - (prev.ts ?? 0)) / 60 || 1;
+        vv = parseFloat(((vixNow - prev.price) / elapsedMin).toFixed(4));
+      }
+    }
+    // 현재 VIX를 히스토리에 추가
+    if (vixNow != null) {
+      const nowKST2 = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+      const timeStr = `${String(nowKST2.getHours()).padStart(2,'0')}:${String(nowKST2.getMinutes()).padStart(2,'0')}`;
+      let hist = stored ? JSON.parse(stored) : [];
+      if (hist.length > 0 && hist[0]?._date !== todayStr) hist = [];
+      hist.push({ time: timeStr, price: vixNow, ts: nowUnix, _date: todayStr });
+      if (hist.length > 200) hist = hist.slice(-200);
+      await env.CACHE.put(vixHistKey, JSON.stringify(hist), { expirationTtl: 86400 });
+    }
+  } catch (e) { console.warn('[Quote] VV calc failed:', e.message); }
+
+  const result = {
+    symbol, price, priceLabel, marketState,
+    prevClose, prevChange,
+    preMarketPrice, postMarketPrice,
+    preMarketChangePercent, postMarketChangePercent,
+    VIX: vixResult['VIX'],
+    VVIX: vixResult['VVIX'],
+    vv,
+    updatedAt: new Date().toISOString(),
+  };
+
+  // 30초 KV 캐시 저장
+  try { await env.CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: TTL }); } catch (_) {}
+
+  return json(result);
+}
+
 // ── 메인 라우터 ──
 export default {
   async fetch(request, env) {
@@ -1252,6 +1420,7 @@ export default {
     }
 
     if (url.pathname === '/api/options')    return handleOptions(url, env);
+    if (url.pathname === '/api/quote')      return handleQuote(url, env);
     if (url.pathname === '/api/price')      return handlePrice(url, env);
     if (url.pathname === '/api/vix')        return handleVix(url, env);
     if (url.pathname === '/api/breadth')    return handleBreadth(url, env);
