@@ -756,7 +756,8 @@ async function load0DTE() {
       const kvHistory = results[1].history || [];
       if (kvHistory.length > 0) {
         vcHistory = kvHistory.map(p => ({
-          time:     p.time,
+          iso:      p.iso,      // UTC ISO (신규 포맷)
+          time:     p.iso ? toKST(p.iso) : p.time, // 표시용 (구버전 호환)
           vanna:    p.vanna,
           charm:    p.charm,
           vix:      p.vix,
@@ -792,19 +793,20 @@ async function load0DTE() {
 
     // KST 시간 문자열 (화면 표시용)
     const now = new Date();
-    const estTimeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'America/New_York' });
-    const timeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' });
+    const nowIsoStr = now.toISOString(); // UTC ISO — 저장 기준
+    const timeStr = toKST(nowIsoStr);   // KST 표시용
 
     priceHistory.push({ time: timeStr, price: newSpot, marketState, vix: vixVal, vvix: vvixVal, ts: now.getTime() });
     if (priceHistory.length > 60) priceHistory.shift();
 
     vcHistory.push({
-      time:     estTimeStr,  // EST 기준으로 저장 (Cron과 동일 키)
+      iso:      nowIsoStr,  // UTC ISO (차트 매핑 기준)
+      time:     timeStr,    // KST 표시용
       vanna:    d0.vanna,
       charm:    d0.charm,
       vix:      vixVal,
       vv:       vvNow,
-      obv:      null, // Cron에서 채워짐, 클라이언트에서는 null
+      obv:      null,
       obvSlope: null,
       spot:     newSpot,
     });
@@ -834,7 +836,7 @@ async function load0DTE() {
     render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr);
 
     // 타임스탬프 표시
-    const computedAt = d0.computedAt ? new Date(d0.computedAt).toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' }) : '—';
+    const computedAt = d0.computedAt ? toKST(d0.computedAt) : '—';
     const srcLabel   = d0.source === 'cron_computed' ? '🟢 Cron' : '🟡 On-demand';
     const previewBadge = d0.isPreview ? ` · 📅 ${d0.exp} 미리보기` : '';
     document.getElementById('data-time-0dte').textContent = `${srcLabel} · 계산: ${computedAt} · 조회: ${timeStr}${previewBadge}`;
@@ -1046,7 +1048,7 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
   <div class="card">
     <div class="card-title">스트라이크별 상세 — 현재가 ±10%</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Strike</th><th>Call OI</th><th>Put OI</th><th>GEX(M)</th><th>Call Vol</th><th>Put Vol</th><th>IV</th></tr></thead>
+      <thead><tr><th>Strike</th><th>Call OI</th><th>Δ Call</th><th>Put OI</th><th>Δ Put</th><th>GEX(M)</th><th>Call Vol</th><th>Put Vol</th><th>IV</th></tr></thead>
       <tbody id="tbl-body-0dte"></tbody>
     </table></div>
   </div>`;
@@ -1073,7 +1075,18 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
     if (isPW)   tags += `<span class="tag tag-pw">Put Wall</span>`;
     if (isCW)   tags += `<span class="tag tag-cw">Call Wall</span>`;
     const gc = s.gex >= 0 ? '#3fb950' : '#f85149';
-    tr.innerHTML = `<td>$${s.strike}${tags}</td><td>${s.callOI.toLocaleString()}</td><td>${s.putOI.toLocaleString()}</td><td style="color:${gc};font-weight:600">${s.gex>=0?'+':''}${(s.gex/1e6).toFixed(2)}</td><td>${(s.callVol||0).toLocaleString()}</td><td>${(s.putVol||0).toLocaleString()}</td><td>${s.iv>0?(s.iv*100).toFixed(1)+'%':'—'}</td>`;
+
+    // OI 증감 포매터
+    const fmtDiff = (d) => {
+      if (d == null || d === 0) return '<span style="color:var(--text3)">—</span>';
+      const sign = d > 0 ? '+' : '';
+      const color = d > 0 ? 'var(--green)' : 'var(--red)';
+      const abs = Math.abs(d);
+      const str = abs >= 1000 ? (abs/1000).toFixed(1)+'K' : abs.toString();
+      return `<span style="color:${color};font-size:11px">${sign}${d > 0 ? str : '-'+str}</span>`;
+    };
+
+    tr.innerHTML = `<td>$${s.strike}${tags}</td><td>${s.callOI.toLocaleString()}</td><td>${fmtDiff(s.callOIDiff)}</td><td>${s.putOI.toLocaleString()}</td><td>${fmtDiff(s.putOIDiff)}</td><td style="color:${gc};font-weight:600">${s.gex>=0?'+':''}${(s.gex/1e6).toFixed(2)}</td><td>${(s.callVol||0).toLocaleString()}</td><td>${(s.putVol||0).toLocaleString()}</td><td>${s.iv>0?(s.iv*100).toFixed(1)+'%':'—'}</td>`;
     tbody.appendChild(tr);
   });
 
@@ -1107,41 +1120,93 @@ function jlScroll0(dir) {
   if (el) el.scrollBy({ top: parseInt(dir) * 72, behavior: 'smooth' });
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// /api/quote 통합 호출 — 현재가 + VIX + VVIX + VV
-// 30초마다 KV읽기 ↔ 직접API호출 교대
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-let _quoteUseDirect = false; // false=KV읽기(캐시), true=직접API
 
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 시간 유틸
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// UTC ISO → KST "HH:MM" (저장 기준: UTC ISO, 표시 기준: KST)
+function toKST(isoStr) {
+  if (!isoStr) return '—';
+  return new Date(isoStr).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Seoul'
+  });
+}
+
+// 섬머타임 감지 (미국 동부 기준) — 개장선 표시용
+function isEDT() {
+  const now = new Date();
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
+  return etStr.includes('EDT');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  // 0DTE 탭 기본: 바로 로드 + 60초 자동갱신
+  load0DTE();
+  auto0DTEInterval = setInterval(load0DTE, 60000);
+
+  // ── 현재가+VIX+VV: 보정 딜레이 후 시작하는 교대 루프 ──
+  // 1) quote:SPY KV 읽기 → computedAt으로 보정 딜레이 계산
+  let delay = 0;
+  try {
+    const kvData = await fetch(`${PROXY}/api/gex0dte?symbol=SPY`).then(r => r.json());
+    const computedAt = kvData?.computedAt;
+    if (computedAt) {
+      // Cron 저장 시각 + 30초 후를 첫 API 호출 시점으로 설정
+      const targetMs = new Date(computedAt).getTime() + 30000;
+      delay = Math.max(0, targetMs - Date.now());
+      console.log(`[Quote] 보정 딜레이: ${delay}ms (computedAt=${computedAt})`);
+    }
+  } catch (e) {
+    console.warn('[Quote] 보정 딜레이 계산 실패, 즉시 시작:', e.message);
+  }
+
+  // 2) 보정 딜레이 후 1회성 API 호출 → 이후 루프
+  setTimeout(() => {
+    fetchQuoteDirect(); // 1회성 보정 호출 (fresh=1)
+
+    // 3) 이후 루프: 30초 KV읽기 ↔ 30초 API호출 교대
+    let toggle = false; // false=KV읽기, true=API호출
+    setInterval(() => {
+      toggle = !toggle;
+      if (toggle) loadQuote();       // KV 읽기 (캐시)
+      else        fetchQuoteDirect(); // 직접 API
+    }, 30000);
+  }, delay);
+
+  // 날짜 탭 만기 목록은 탭 전환 시 로드
+});
+
+// KV 캐시 읽기 (Workers가 KV 우선 반환)
 async function loadQuote() {
+  return _fetchQuote(false);
+}
+// 직접 API 호출 (fresh=1)
+async function fetchQuoteDirect() {
+  return _fetchQuote(true);
+}
+async function _fetchQuote(fresh) {
   const sym = document.getElementById('sym-select-0dte')?.value || 'SPY';
   try {
-    // 교대: false=캐시포함(Workers가 KV우선), true=강제갱신
-    const url = _quoteUseDirect
+    const url = fresh
       ? `${PROXY}/api/quote?symbol=${sym}&fresh=1`
       : `${PROXY}/api/quote?symbol=${sym}`;
-    _quoteUseDirect = !_quoteUseDirect;
-
     const data = await fetch(url).then(r => r.json());
     if (data.error) return;
 
-    // 현재가 업데이트
     const newSpot = data.price;
     const marketState = data.marketState || 'REGULAR';
     window._lastPriceJson = data;
 
-    // VIX/VVIX 업데이트
     vixVal  = data.VIX?.price  ?? null;
     vvixVal = data.VVIX?.price ?? null;
     window._lastVixJson = { VIX: data.VIX, VVIX: data.VVIX };
 
-    // VV 업데이트
     if (data.vv != null && vcHistory.length > 0) {
-      // 현재 포인트에 vv 업데이트
       vcHistory[vcHistory.length - 1].vv = data.vv;
     }
 
-    // 다이버전스 감지 (기존 로직 유지)
     if (vixVal != null) {
       vixPriceHistory.push(vixVal);
       if (vixPriceHistory.length > 120) vixPriceHistory.shift();
@@ -1157,7 +1222,6 @@ async function loadQuote() {
 
     updateVIXMetrics();
 
-    // 현재가 메트릭 카드 업데이트 (spot)
     const spotEl = document.getElementById('metric-spot-0dte');
     if (spotEl && newSpot) {
       const stateLabel = marketState === 'PRE' ? 'Pre' : marketState === 'POST' ? 'Post' : 'Reg';
@@ -1166,19 +1230,8 @@ async function loadQuote() {
       spotEl.querySelector('.val').textContent = `[${stateLabel}] $${newSpot.toFixed(2)}`;
       spotEl.querySelector('.lbl').textContent = `현재가${pctStr}`;
     }
-
-  } catch(e) { console.warn('loadQuote error:', e); }
+  } catch(e) { console.warn('_fetchQuote error:', e); }
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-  // 0DTE 탭 기본: 바로 로드 + 60초 자동갱신
-  load0DTE();
-  auto0DTEInterval = setInterval(load0DTE, 60000);
-  // 현재가+VIX+VV: 30초마다 교대 방식
-  loadQuote();
-  setInterval(loadQuote, 30000);
-  // 날짜 탭 만기 목록은 탭 전환 시 로드
-});
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // RSI 계산 (Wilder RMA 방식, Pine Script 동일)
@@ -1320,7 +1373,7 @@ async function loadVIX() {
 function pushDivergenceEvent(div, symKey) {
   if (!div) return;
   const now = new Date();
-  const timeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', second:'2-digit', timeZone:'Asia/Seoul' });
+  const timeStr = toKST(now.toISOString());
   const countStr = div.count > 1 ? ` (${div.count}회 연속)` : ' (1회)';
 
   let cls, msg;
@@ -1563,16 +1616,8 @@ function renderForceSidebar(force) {
 // VannaCharm 차트 렌더 (CBOE 기반 누적)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// 섬머타임 감지 (미국 동부 기준)
-function isEDT() {
-  // 브라우저 타임존(KST)이 아닌 미국 동부 시간 기준으로 섬머타임 감지
-  const now = new Date();
-  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
-  return etStr.includes('EDT');
-}
-
-// EST/EDT → KST 변환 (표시 전용 — 데이터 저장은 항상 EST 기준)
-// EDT(섬머타임): +13h, EST(겨울): +14h
+// 섬머타임 감지 및 시간 변환은 DOMContentLoaded 위 toKST / isEDT 함수로 통합
+// estToKST는 하위 호환 래퍼로 유지 (차트 내 직접 참조 제거됨)
 function estToKST(timeStr) {
   if (!timeStr || !timeStr.includes(':')) return timeStr;
   const [h, m] = timeStr.split(':').map(Number);
@@ -1626,11 +1671,13 @@ function updateVCZoom() {
   const newW = Math.round(baseW * vcZoomLevel);
   inner.style.width = newW + 'px';
 
-  // 현재 시간 위치 계산 → 화면 중앙에 오도록 스크롤 (EST 기준)
-  const nowEST = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const nowESTMin = nowEST.getHours() * 60 + nowEST.getMinutes();
-  const nowMinFromStart = nowESTMin - (PRE_START_EST * 60);
-  const nowRatio = Math.max(0, Math.min(1, nowMinFromStart / (vcTotalSlots * 5)));
+  // 현재 시간 위치 계산 → 화면 중앙에 오도록 스크롤 (UTC ISO 기준)
+  const nowMs = Date.now();
+  const etOff = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).includes('EDT') ? 4 : 5;
+  const todayEstStr = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const preMs = new Date(`${todayEstStr}T${String(PRE_START_EST + etOff).padStart(2,'0')}:00:00Z`).getTime();
+  const totalMs = TOTAL_SLOTS * 5 * 60000;
+  const nowRatio = Math.max(0, Math.min(1, (nowMs - preMs) / totalMs));
 
   // 현재 시간이 화면 중앙에 오도록
   const nowPx = newW * nowRatio;
@@ -1672,40 +1719,77 @@ function renderVCChart() {
     return;
   }
 
-  // ── 전체 고정 시간축 (EST 기준으로 생성, 표시는 KST 변환) ──
-  // 프리마켓 시작: EDT 04:00 / EST 04:00 (EST 고정)
+  // ── 전체 고정 시간축 (UTC ISO 기준으로 생성, 표시는 toKST 변환) ──
+  // 프리마켓 시작: EST 04:00 = UTC 09:00 (EDT) 또는 UTC 08:00 (EST)
+  // 브라우저 toKST()가 자동 변환하므로 UTC 기준으로 슬롯만 생성
   const PRE_START_EST = 4; // 04:00 EST
   const TOTAL_SLOTS = 192;
   vcTotalSlots = TOTAL_SLOTS;
 
-  // EST 기준 시간축 (데이터 매핑용)
-  const fullAxisEST = [];
+  // 오늘 날짜(EST 기준) + 04:00 EST의 UTC 시각 계산
+  const nowEST_c = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const todayStrEST = nowEST_c.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  // "2026-04-17T04:00:00" + America/New_York → UTC ISO 배열 생성
+  const preStartUTC = new Date(`${todayStrEST}T${String(PRE_START_EST).padStart(2,'0')}:00:00`);
+  // EST offset: EDT=-4, EST=-5 → UTC = localTime + offset
+  // 브라우저 독립적으로: America/New_York 04:00를 UTC로 변환
+  const preStartUtcMs = (() => {
+    // 더미 날짜 string을 뉴욕 시각으로 파싱
+    const s = `${todayStrEST}T04:00:00`;
+    // toLocaleString 역산 (브라우저 타임존 무관)
+    const d = new Date(s + ' EST'); // 대략적 파싱
+    // 정확한 방법: Intl.DateTimeFormat 활용
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+    });
+    // 오늘 00:00 UTC 기준으로 찾기
+    let probe = new Date(`${todayStrEST}T00:00:00Z`);
+    // 뉴욕 04:00에 해당하는 UTC 찾기 (브루트포스: ±1분 이내)
+    // 실제 오프셋: EDT=UTC-4, EST=UTC-5
+    const etStr = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' });
+    const offsetH = etStr.includes('EDT') ? 4 : 5;
+    return new Date(`${todayStrEST}T${String(PRE_START_EST + offsetH).padStart(2,'0')}:00:00Z`).getTime();
+  })();
+
+  // 5분 간격 UTC ISO 배열 (TOTAL_SLOTS개)
+  const fullAxisISO = [];
   for (let i = 0; i < TOTAL_SLOTS; i++) {
-    const totalMin = PRE_START_EST * 60 + i * 5;
-    const hh = Math.floor((totalMin % 1440) / 60);
-    const mm = totalMin % 60;
-    fullAxisEST.push(`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`);
+    fullAxisISO.push(new Date(preStartUtcMs + i * 5 * 60000).toISOString());
   }
 
-  // 표시용 KST 레이블
-  const labels = fullAxisEST.map(t => estToKST(t));
+  // 표시용 KST 레이블 (toKST 사용)
+  const labels = fullAxisISO.map(iso => toKST(iso));
 
-  // 데이터 매핑 (EST 키 기준)
+  // 데이터 매핑: KV의 iso 키(정확히 5분 간격이 아닐 수 있음) → 가장 가까운 슬롯에 매핑
   const dataMap = {};
-  vcHistory.forEach(h => { dataMap[h.time] = h; });
+  vcHistory.forEach(h => {
+    if (!h.iso) {
+      // 구버전 데이터 (time 키): 스킵하거나 추정
+      return;
+    }
+    const hMs = new Date(h.iso).getTime();
+    // 가장 가까운 슬롯 인덱스
+    const idx = Math.round((hMs - preStartUtcMs) / (5 * 60000));
+    if (idx >= 0 && idx < TOTAL_SLOTS) {
+      dataMap[fullAxisISO[idx]] = h;
+    }
+  });
 
-  const vannaD = fullAxisEST.map(t => dataMap[t]?.vanna ?? null);
-  const charmD = fullAxisEST.map(t => dataMap[t]?.charm ?? null);
-  const obvD   = fullAxisEST.map(t => dataMap[t]?.obv != null ? dataMap[t].obv / 1e6 : null);
+  const vannaD = fullAxisISO.map(iso => dataMap[iso]?.vanna ?? null);
+  const charmD = fullAxisISO.map(iso => dataMap[iso]?.charm ?? null);
+  const obvD   = fullAxisISO.map(iso => dataMap[iso]?.obv != null ? dataMap[iso].obv / 1e6 : null);
 
-  // VV 누적 (개장 시 리셋 — 개장 EST 09:30)
-  const openEST = '09:30';
+  // VV 누적 (개장 시 리셋 — EST 09:30 = UTC+4 또는 UTC+5)
+  const etOffset = new Date().toLocaleString('en-US', { timeZone: 'America/New_York', timeZoneName: 'short' }).includes('EDT') ? 4 : 5;
+  const openUTC = new Date(`${todayStrEST}T${String(9 + etOffset).padStart(2,'0')}:30:00Z`).toISOString();
   let vvCum = 0;
-  const vvD = fullAxisEST.map(t => {
-    if (t === openEST) vvCum = 0;
-    const v = dataMap[t]?.vv;
+  const vvD = fullAxisISO.map(iso => {
+    if (iso >= openUTC && fullAxisISO[fullAxisISO.indexOf(iso) - 1] < openUTC) vvCum = 0;
+    const v = dataMap[iso]?.vv;
     if (v != null) vvCum += v;
-    return dataMap[t] != null ? vvCum : null;
+    return dataMap[iso] != null ? vvCum : null;
   });
 
   // ── inner/wrap 너비 설정 (OI 차트 동일 방식) ──
