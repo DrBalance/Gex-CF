@@ -26,6 +26,10 @@ html,body{width:100%;min-height:100vh;background:var(--bg);color:var(--text);fon
 .status-dot.updating{background:var(--yellow);animation:pulse 1s infinite}
 .status-text{font-size:13px;color:var(--text2)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes glow-green{0%,100%{box-shadow:0 0 4px #3fb950,0 0 8px #3fb950}50%{box-shadow:0 0 8px #3fb950,0 0 18px #3fb950,0 0 24px #3fb950}}
+@keyframes glow-red{0%,100%{box-shadow:0 0 4px #f85149,0 0 8px #f85149}50%{box-shadow:0 0 8px #f85149,0 0 18px #f85149,0 0 24px #f85149}}
+@keyframes glow-yellow{0%,100%{box-shadow:0 0 4px #d29922,0 0 8px #d29922}50%{box-shadow:0 0 8px #d29922,0 0 16px #d29922}}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
 
 .ctrl-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 28px;border-bottom:1px solid var(--border);background:var(--bg2)}
 select,button{font-family:var(--font);font-size:14px}
@@ -1019,9 +1023,9 @@ function render0DTE(d0, newSpot, marketState, preMarketPct, prevClose, timeStr) 
         </div>
       </div>
       <!-- 신호등 패널 -->
-      <div id="vc-signal-bar" style="padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600;letter-spacing:.02em;min-height:38px;display:flex;align-items:center;gap:12px">
-        <span id="vc-signal-icon">—</span>
-        <span id="vc-signal-text" style="color:var(--text2)">데이터 누적 중...</span>
+      <div id="vc-signal-bar" style="padding:10px 16px;border-top:1px solid var(--border);font-size:13px;font-weight:600;letter-spacing:.02em;min-height:42px;display:flex;align-items:center;gap:12px;background:rgba(0,0,0,.15)">
+        <div id="vc-signal-indicator" style="width:14px;height:14px;border-radius:3px;flex-shrink:0;background:var(--text3)"></div>
+        <span id="vc-signal-text" style="color:var(--text2);font-size:13px">데이터 누적 중...</span>
       </div>
     </div>
   </div>
@@ -1582,25 +1586,24 @@ function setVCRange(range) {
   vcZoomLevel = VC_RANGE_ZOOM[range] || 4;
   const lbl = document.getElementById('vc-zoom-val');
   if (lbl) lbl.textContent = VC_RANGE_LABEL[range] || range.toUpperCase();
-  // 슬라이더 동기화 (zoom 0.5~8 → slider 1~16으로 매핑)
   const sl = document.getElementById('vc-zoom-slider');
   if (sl) sl.value = vcZoomLevel * 2;
   ['2h','4h','8h','1d','all'].forEach(r => {
     const btn = document.getElementById('vcrange-' + r);
     if (btn) btn.className = 'vc-range-btn' + (r === range ? ' active' : '');
   });
-  updateVCZoom();
+  renderVCChart(); // ← OI 차트와 동일하게 재렌더
 }
 
 function onVCSlider(val) {
-  vcZoomLevel = parseFloat(val) / 2; // slider 1~16 → zoom 0.5~8
+  vcZoomLevel = parseFloat(val) / 2;
   const lbl = document.getElementById('vc-zoom-val');
   if (lbl) lbl.textContent = vcZoomLevel.toFixed(1) + '×';
   ['2h','4h','8h','1d','all'].forEach(r => {
     const btn = document.getElementById('vcrange-' + r);
     if (btn) btn.className = 'vc-range-btn';
   });
-  updateVCZoom();
+  renderVCChart(); // ← OI 차트와 동일하게 재렌더
 }
 
 // ── 확대/스크롤만 조정 (차트 재렌더 없음) ──
@@ -1711,8 +1714,8 @@ function renderVCChart() {
     return sign + abs.toFixed(1) + 'M';
   };
 
-  // ── 끝점 레이블 플러그인 ──
-  const endLabelPlugin = (datasetIdx, labelFn, color) => ({
+  // ── 끝점 레이블 플러그인 (offsetY: 양수=아래, 음수=위) ──
+  const endLabelPlugin = (datasetIdx, labelFn, color, offsetY = -12) => ({
     id: `endLabel_${datasetIdx}`,
     afterDraw(chart) {
       const ds = chart.data.datasets[datasetIdx];
@@ -1732,14 +1735,15 @@ function renderVCChart() {
       ctx.font = 'bold 10px monospace';
       const tw = ctx.measureText(label).width;
       const x = Math.min(pt.x + 4, chartArea.right - tw - 4);
+      const y = pt.y + offsetY; // 위 또는 아래
       ctx.fillStyle = color;
       ctx.globalAlpha = 0.85;
-      ctx.fillRect(x - 2, pt.y - 8, tw + 6, 16);
+      ctx.fillRect(x - 2, y - 8, tw + 6, 16);
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#0d1117';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(label, x, pt.y);
+      ctx.fillText(label, x, y);
       ctx.restore();
     }
   });
@@ -1854,8 +1858,8 @@ function renderVCChart() {
       options: opts,
       plugins: [
         sessionPlugin(labels),
-        endLabelPlugin(0, v => `Vanna: ${mFmt(v)}`, '#bc8cff'),
-        endLabelPlugin(1, v => `Charm: ${mFmt(v)}`, '#58a6ff'),
+        endLabelPlugin(0, v => `Vanna: ${mFmt(v)}`, '#bc8cff', -14), // Vanna 위쪽
+        endLabelPlugin(1, v => `Charm: ${mFmt(v)}`, '#58a6ff', +14), // Charm 아래쪽
         stickyYPlugin('vc-pane-vc-wrap', '#8b949e', mFmt),
       ]
     });
@@ -1879,8 +1883,8 @@ function renderVCChart() {
             label: 'VV 누적',
             data: vvD,
             segment: {
-              borderColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)',
-              backgroundColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)',
+              borderColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? '#d29922' : '#6b4c0a',
+              backgroundColor: ctx => (ctx.p1?.parsed?.y ?? 0) >= 0 ? 'rgba(210,153,34,0.15)' : 'rgba(107,76,10,0.20)',
             },
             fill: 'origin',
             borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0, spanGaps: true,
@@ -1889,7 +1893,7 @@ function renderVCChart() {
         options: opts,
         plugins: [
           sessionPlugin(labels),
-          endLabelPlugin(0, v => `VV: ${v >= 0 ? '+' : ''}${v?.toFixed(4)}`, lastVV >= 0 ? '#3fb950' : '#f85149'),
+          endLabelPlugin(0, v => `VV: ${v >= 0 ? '+' : ''}${v?.toFixed(4)}`, lastVV >= 0 ? '#d29922' : '#6b4c0a', -14),
           stickyYPlugin('vc-pane-vv-wrap', '#d29922', v => v?.toFixed(3)),
         ]
       });
@@ -1951,47 +1955,57 @@ function updateVCSignalBar(slice) {
   const vv = last.vv ?? 0;
   const obvCur = last.obv ?? 0;
   const obvPrev = prev5.obv ?? 0;
-  const obvDelta = obvCur - obvPrev; // 최근 5포인트(25분) OBV 변화
+  const obvDelta = obvCur - obvPrev;
 
-  // 가격 방향
   const spotCur  = last.spot  ?? 0;
   const spotPrev = prev5.spot ?? 0;
   const priceDn  = spotCur < spotPrev;
-  const priceUp  = spotCur > spotPrev;
 
-  let icon = '—', msg = '', color = 'var(--text2)';
+  let signalType = 'neutral', msg = '', color = 'var(--text3)';
 
-  // 시퀀스 감지: 선물 헷지 + Charm 반등 준비
-  const charmPositive = (last.charm ?? 0) < 0; // charm<0 = 매수 드리프트
-  const hedgeSignal   = priceDn && Math.abs(obvDelta) < Math.abs(obvCur) * 0.05; // 가격하락인데 OBV 거의 무변화
+  const charmPositive = (last.charm ?? 0) < 0;
+  const hedgeSignal   = priceDn && Math.abs(obvDelta) < Math.abs(obvCur) * 0.05;
 
   if (hedgeSignal && charmPositive) {
-    icon = '🟡'; msg = '선물 헷지 의심 + Charm 매수 드리프트 대기 → Charm 반등 가능성 주의'; color = 'var(--yellow)';
+    signalType = 'yellow'; msg = '선물 헷지 의심 + Charm 매수 드리프트 대기 → Charm 반등 가능성 주의'; color = 'var(--yellow)';
   } else if (vv > 0.05 && obvDelta < 0) {
-    icon = '🔴'; msg = `VV +${vv.toFixed(3)} pt/min · OBV ↓ 수급 이탈 → 실제 하락 압력 확인`; color = 'var(--red)';
+    signalType = 'red'; msg = `VV +${vv.toFixed(3)} · OBV ↓ 수급 이탈 → 실제 하락 압력 확인`; color = 'var(--red)';
   } else if (vv > 0.05 && obvDelta >= 0) {
-    icon = '🟡'; msg = `VV +${vv.toFixed(3)} pt/min · OBV 유지 → 헷지 노이즈 가능, 추세 지속 확인 필요`; color = 'var(--yellow)';
+    signalType = 'yellow'; msg = `VV +${vv.toFixed(3)} · OBV 유지 → 헷지 노이즈 가능, 추세 지속 확인 필요`; color = 'var(--yellow)';
   } else if (vv < -0.05 && obvDelta > 0) {
-    icon = '🟢'; msg = `VV ${vv.toFixed(3)} pt/min · OBV ↑ 수급 유입 → 상승 환경 확인`; color = 'var(--green)';
+    signalType = 'green'; msg = `VV ${vv.toFixed(3)} · OBV ↑ 수급 유입 → 상승 환경 확인`; color = 'var(--green)';
   } else if (vv < -0.05 && obvDelta <= 0) {
-    icon = '🟡'; msg = `VV ${vv.toFixed(3)} pt/min · OBV ↓ → VIX만 하락, 수급 미확인`; color = 'var(--yellow)';
+    signalType = 'yellow'; msg = `VV ${vv.toFixed(3)} · OBV ↓ → VIX만 하락, 수급 미확인`; color = 'var(--yellow)';
   } else {
-    icon = '⬜'; msg = `VV ${vv.toFixed(3)} pt/min · OBV 중립 → 방향 대기`; color = 'var(--text3)';
+    signalType = 'neutral'; msg = `VV ${vv.toFixed(3)} · OBV 중립 → 방향 대기`; color = 'var(--text3)';
   }
 
-  const iconEl = document.getElementById('vc-signal-icon');
-  const textEl = document.getElementById('vc-signal-text');
-  if (iconEl) iconEl.textContent = icon;
-  if (textEl) { textEl.textContent = msg; textEl.style.color = color; }
+  // 애니메이션 인디케이터 업데이트
+  const indEl = document.getElementById('vc-signal-indicator');
+  if (indEl) {
+    const styleMap = {
+      green:   { bg: '#3fb950', anim: 'glow-green 1.5s ease-in-out infinite', radius: '3px' },
+      red:     { bg: '#f85149', anim: 'glow-red 1.2s ease-in-out infinite',   radius: '3px' },
+      yellow:  { bg: '#d29922', anim: 'glow-yellow 1.8s ease-in-out infinite', radius: '3px' },
+      neutral: { bg: 'var(--text3)', anim: 'pulse 2s ease-in-out infinite',   radius: '3px' },
+    };
+    const s = styleMap[signalType] || styleMap.neutral;
+    indEl.style.background = s.bg;
+    indEl.style.animation  = s.anim;
+    indEl.style.borderRadius = s.radius;
+  }
 
-  // 실시간 판단 패널에도 push (중요 신호만)
+  const textEl = document.getElementById('vc-signal-text');
+  if (textEl) { textEl.textContent = msg; textEl.style.color = color; textEl.style.fontWeight = signalType !== 'neutral' ? '700' : '500'; }
+
+  // 실시간 판단 패널 push (중요 신호만)
   const now = new Date();
   const evTimeStr = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', timeZone:'America/New_York' });
-  if (['🔴','🟢'].includes(icon)) {
-    liveEvents.unshift({ time: evTimeStr + ' ET', cls: icon === '🔴' ? 'le-warn' : 'le-good', msg });
+  if (signalType === 'red' || signalType === 'green') {
+    liveEvents.unshift({ time: evTimeStr + ' ET', cls: signalType === 'red' ? 'le-warn' : 'le-good', msg });
     if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
   }
-  if (icon === '🟡' && hedgeSignal) {
+  if (signalType === 'yellow' && hedgeSignal) {
     liveEvents.unshift({ time: evTimeStr + ' ET', cls: 'le-warn', msg });
     if (liveEvents.length > 15) liveEvents = liveEvents.slice(0, 15);
   }
